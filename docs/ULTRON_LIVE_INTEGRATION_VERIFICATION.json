@@ -1,0 +1,366 @@
+{
+  "schema_version": 1,
+  "title": "ULTRON live integration verification",
+  "report_status": "PROPOSED_NOT_EXECUTED",
+  "deployment_decision": "NO-GO",
+  "scope": {
+    "mode": "read_only_observation_and_source_trace",
+    "application_source_changed": false,
+    "live_services_touched": false,
+    "live_databases_accessed": false,
+    "credentials_accessed": false,
+    "omega_modified_or_accessed": false,
+    "external_requests_made": false,
+    "tests_run": false,
+    "no_runtime_defect_fixed": true
+  },
+  "observed_runtime": {
+    "manager_pid": 6943,
+    "service_pids": [6970, 7065, 7071, 7075],
+    "gateway_port": "127.0.0.1:8080",
+    "frontend_port": "127.0.0.1:8000",
+    "auth_helper_port": "127.0.0.1:8081",
+    "voice_port": "127.0.0.1:8765",
+    "dashboard_http_200": true,
+    "operator_unlock_status": "NOT_VERIFIED",
+    "authenticated_browser_verification_status": "NOT_VERIFIED",
+    "current_evidence_summary": "The local dashboard is reachable and the backend surface appears present, but no fresh authenticated end-to-end verification was performed. The current state is not enough to prove live functional integration or owner-isolated access."
+  },
+  "capability_matrix": [
+    {
+      "capability": "Gateway heartbeat and backend connection",
+      "frontend_entry_point": "interface/operator-console.js",
+      "backend_implementation": "ultron/application/runtime/interface_gateway.py",
+      "data_source": "real local gateway / WebSocket bridge",
+      "evidence_examined": [
+        "browser shows connected backend state and heartbeat",
+        "provider provenance and stale-state rules in interface/services/providers/websocketProvider.js"
+      ],
+      "test_coverage": [
+        "interface/tests/runtimeEvents.test.mjs"
+      ],
+      "live_verification_status": "VERIFIED_LOCAL",
+      "known_limitations": [
+        "No authenticated browser proof of current backend state was obtained",
+        "A local socket open does not prove a live, fresh, or authenticated backend response"
+      ],
+      "exact_blocker": "No fresh authenticated current snapshot; system is only locally observed",
+      "recommended_next_action": "Complete a private local unlock and authenticated status refresh before claiming live integration"
+    },
+    {
+      "capability": "Runtime state and agent count",
+      "frontend_entry_point": "interface/operator-console.js",
+      "backend_implementation": "ultron/application/runtime/interface_gateway.py",
+      "data_source": "local runtime event bus and service registry",
+      "evidence_examined": [
+        "observed runtime IDLE value and four registered agents",
+        "runtime event handling and stale-state handling"
+      ],
+      "test_coverage": [
+        "interface/tests/runtimeEvents.test.mjs"
+      ],
+      "live_verification_status": "VERIFIED_LOCAL",
+      "known_limitations": [
+        "State is not proven to be fresh or authenticated at the moment observed",
+        "No live ownership and authorization gate has passed"
+      ],
+      "exact_blocker": "No fresh authenticated current snapshot and no live operator session",
+      "recommended_next_action": "Compare runtime timestamps and provenance after the private unlock is completed"
+    },
+    {
+      "capability": "OMEGA health and integration",
+      "frontend_entry_point": "interface/operator-console.js",
+      "backend_implementation": "ultron/application/runtime/interface_gateway.py",
+      "data_source": "OMEGA integration service or absent route",
+      "evidence_examined": [
+        "runner shows OMEGA health UNKNOWN and ULTRON-to-OMEGA NOT_CONFIGURED"
+      ],
+      "test_coverage": [
+        "interface/tests/financialTelemetry.test.mjs"
+      ],
+      "live_verification_status": "UNAVAILABLE",
+      "known_limitations": [
+        "No configured OMEGA integration path was demonstrated",
+        "The dashboard reports not configured, not healthy"
+      ],
+      "exact_blocker": "Missing configuration and integration contract",
+      "recommended_next_action": "Only wire OMEGA after a separate release and authority gate is satisfied"
+    },
+    {
+      "capability": "Trading market data",
+      "frontend_entry_point": "interface/operator-console.js",
+      "backend_implementation": "ultron/financial/bootstrap.py and ultron/financial/trading/market_data/service.py",
+      "data_source": "paper broker / local validation path",
+      "evidence_examined": [
+        "source bootstraps a local paper broker and simulation mode",
+        "validator rejects stale, missing, or invalid provider quote values"
+      ],
+      "test_coverage": [
+        "interface/tests/financialTelemetry.test.mjs"
+      ],
+      "live_verification_status": "VERIFIED_SIMULATION",
+      "known_limitations": [
+        "No provider-backed live or authenticated market data flow was demonstrated",
+        "Trading remains simulation-only and read-only"
+      ],
+      "exact_blocker": "No approved provider-backed contract or live trade permission",
+      "recommended_next_action": "Require an approved provider and freshness validation before any live trading claim"
+    },
+    {
+      "capability": "Paper portfolio and risk state",
+      "frontend_entry_point": "interface/operator-console.js",
+      "backend_implementation": "ultron/financial/bootstrap.py",
+      "data_source": "in-process paper broker",
+      "evidence_examined": [
+        "state explicitly shows PAPER/SIMULATION and no live order submission"
+      ],
+      "test_coverage": [
+        "interface/tests/financialTelemetry.test.mjs"
+      ],
+      "live_verification_status": "VERIFIED_SIMULATION",
+      "known_limitations": [
+        "Not a live trading environment",
+        "Risk instrumentation and live order submission are absent"
+      ],
+      "exact_blocker": "Simulation-only path; no live risk or execution configuration verified",
+      "recommended_next_action": "Keep the stack read-only and simulation-backed until the deployment gate is met"
+    },
+    {
+      "capability": "CRE status and readiness",
+      "frontend_entry_point": "interface/operator-console.js",
+      "backend_implementation": "ultron/application/content/status.py",
+      "data_source": "owner-scoped content status projection",
+      "evidence_examined": [
+        "processing not configured",
+        "rendering preview-only or not configured",
+        "publishing mock-only and analytics not instrumented"
+      ],
+      "test_coverage": [
+        "interface/tests/creStatus.test.mjs"
+      ],
+      "live_verification_status": "PARTIALLY_IMPLEMENTED",
+      "known_limitations": [
+        "No authenticated live CRE mission proof was obtained",
+        "No boss-level publishing or analytics path is live"
+      ],
+      "exact_blocker": "CRE processing, publishing, and analytics are intentionally not configured or mocked",
+      "recommended_next_action": "Authorize and verify a private authenticated CRE status flow before claiming anything beyond local preview"
+    },
+    {
+      "capability": "Local script preview rendering",
+      "frontend_entry_point": "interface/operator-console.js",
+      "backend_implementation": "ultron/application/content/script_preview.py",
+      "data_source": "local preview pipeline and staging directory",
+      "evidence_examined": [
+        "local preview generation flow and metadata validation",
+        "script-preview evidence and scene metadata in the browser"
+      ],
+      "test_coverage": [
+        "interface/tests/creStatus.test.mjs"
+      ],
+      "live_verification_status": "VERIFIED_LOCAL",
+      "known_limitations": [
+        "Preview is distinct from a live or persisted production gallery",
+        "It does not prove platform publishing or deep media correctness"
+      ],
+      "exact_blocker": "The preview is local and scoped; it is not a production publishing or gallery pipeline",
+      "recommended_next_action": "Keep preview local until the authenticated live gallery contract is verified"
+    },
+    {
+      "capability": "Persisted scene gallery and image decode",
+      "frontend_entry_point": "interface/operator-console.js and interface/services/renderCreAudioEvidence.js",
+      "backend_implementation": "ultron/application/content/status.py and ultron/application/content/script_preview.py",
+      "data_source": "owner-scoped metadata plus preview image bytes when present",
+      "evidence_examined": [
+        "code distinguishes metadata-only evidence from actual image payloads",
+        "no fresh persisted gallery read was seen in the current browser session"
+      ],
+      "test_coverage": [
+        "interface/tests/creStatus.test.mjs"
+      ],
+      "live_verification_status": "PARTIALLY_IMPLEMENTED",
+      "known_limitations": [
+        "No independent persisted-image verification was performed",
+        "Actual image bytes and dimensions were not proven to match current backend evidence"
+      ],
+      "exact_blocker": "Current evidence is not bound to a fresh live gallery and may be stale or synthetic",
+      "recommended_next_action": "Complete the authenticated gallery read and compare decoded image dimensions and SHA-256 hashes to backend records"
+    },
+    {
+      "capability": "Browser authentication and secure helper path",
+      "frontend_entry_point": "interface/services/providers/websocketProvider.js",
+      "backend_implementation": "ultron/application/runtime/local_auth_helper.py",
+      "data_source": "local auth handshake and browser auth-required flow",
+      "evidence_examined": [
+        "provider requires the browser to authenticate before subscription",
+        "runbook requires the private local unlock flow"
+      ],
+      "test_coverage": [
+        "interface/tests/websocketProvider.test.mjs"
+      ],
+      "live_verification_status": "IMPLEMENTED_NOT_LIVE_VERIFIED",
+      "known_limitations": [
+        "No operator unlock was completed during this mission",
+        "No live authenticated flow was observed"
+      ],
+      "exact_blocker": "Authentication remains unverified; no live unlock was performed",
+      "recommended_next_action": "Perform the official private local-unlock path under operator control and confirm the connection becomes authenticated"
+    },
+    {
+      "capability": "Owner isolation",
+      "frontend_entry_point": "interface/operator-console.js",
+      "backend_implementation": "ultron/application/runtime/interface_gateway.py and ultron/application/content/status.py",
+      "data_source": "owner-scoped auth and content status context",
+      "evidence_examined": [
+        "source design is owner-scoped",
+        "no second principal or multi-owner fixture was used in this mission"
+      ],
+      "test_coverage": [],
+      "live_verification_status": "UNAVAILABLE",
+      "known_limitations": [
+        "No live isolation check has been performed",
+        "A claim of owner isolation requires a second authorized principal or supported fixture"
+      ],
+      "exact_blocker": "Owner-isolation verification is missing and is not produced by source inspection alone",
+      "recommended_next_action": "Use an authorized second principal or supported multi-owner fixture to verify the server-side rejection of cross-owner access"
+    },
+    {
+      "capability": "Voice readiness and playback",
+      "frontend_entry_point": "interface/operator-console.js",
+      "backend_implementation": "ultron/voice/server.py",
+      "data_source": "local voice service and browser client",
+      "evidence_examined": [
+        "local listener exists",
+        "voice status is visible in the dashboard but not independently verified"
+      ],
+      "test_coverage": [],
+      "live_verification_status": "PARTIALLY_IMPLEMENTED",
+      "known_limitations": [
+        "No fresh voice playback success or decode evidence was observed",
+        "No end-to-end user-visible playback proof was gathered"
+      ],
+      "exact_blocker": "Service is present, but playback and backend evidence are not independently verified",
+      "recommended_next_action": "Run the supported read-only voice verification procedure only after the ownership and auth gates pass"
+    }
+  ],
+  "genuinely_works": [
+    "The local dashboard and gateway are present on localhost and return user-visible runtime state",
+    "The UI explicitly distinguishes stale and unavailable states instead of fabricating healthy output",
+    "The financial and CRE source contracts refuse fabricated outputs when the required provider, publisher, or analytics data is absent"
+  ],
+  "appears_connected_but_unverified": [
+    "Gateway heartbeat and runtime telemetry",
+    "CRE preview metadata",
+    "Local browser auth flow",
+    "Live voice readiness"
+  ],
+  "simulated_or_mocked": [
+    "Trading is paper/simulation mode",
+    "CRE publishing is mock-only and not configured",
+    "OMEGA is not configured",
+    "Analytics are not instrumented"
+  ],
+  "missing": [
+    "Private local unlock and authenticated dashboard verification",
+    "Fresh persisted gallery read and integrity checks",
+    "Second-principal owner-isolation validation",
+    "Approved release/rollback and runtime-ownership gate"
+  ],
+  "next_three_engineering_actions": [
+    "Verify manager ownership and source provenance before any live maintenance or helper restart",
+    "Complete a private local unlock and authenticated read-only status/gallery verification",
+    "Bind the runtime to an approved release bundle and restore rehearsal before any wider deployment decision"
+  ],
+  "deployment_readiness_changed": false,
+  "prioritized_remediation_plan": [
+    {
+      "priority": 1,
+      "mission_id": "ULTRON-CLOSE-00",
+      "objective": "Establish authoritative runtime ownership and recovery authority",
+      "prerequisites": [
+        "Read-only source and runtime inspection of the manager, state directory, and current process identities",
+        "Operator identification of the original manager owner or equivalent startup record"
+      ],
+      "scope": "Read-only ownership verification, lease/socket inspection, source identity, and recovery gate assessment",
+      "files_likely_to_change": [
+        "scripts/ultron_service_manager.py",
+        "tests/runtime/test_service_manager.py"
+      ],
+      "exclusions": [
+        "No live restart or process adoption",
+        "No state-file repair",
+        "No redesign"
+      ],
+      "tests_and_acceptance_criteria": [
+        "The manager identity and child service identities must be confirmed against current process and state records",
+        "The lease/control path remains supported and the recovery gate is not passed without explicit owner evidence"
+      ],
+      "recovery_or_rollback_requirements": [
+        "Explicit operator authorization and a documented maintenance window if identity is established"
+      ],
+      "evidence_required": [
+        "Verified ownership record, current manager/service identity tuple, and a supported handoff or recovery path"
+      ],
+      "blocker_requires_operator": true
+    },
+    {
+      "priority": 2,
+      "mission_id": "ULTRON-CLOSE-07",
+      "objective": "Complete authenticated browser verification for the CRE and gallery contract",
+      "prerequisites": [
+        "Runtime ownership gate passed",
+        "Private local unlock and auth workflow available"
+      ],
+      "scope": "Authenticated status/CRE/gallery read-only validation and evidence hash comparison",
+      "files_likely_to_change": [
+        "interface/services/providers/websocketProvider.js",
+        "interface/operator-console.js",
+        "interface/tests/creStatus.test.mjs"
+      ],
+      "exclusions": [
+        "No external publishing",
+        "No OMEGA mutation",
+        "No change to live auth configuration"
+      ],
+      "tests_and_acceptance_criteria": [
+        "Fresh authenticated responses, stale-state labeling, and scene image decode/hash verification all progress to PASS"
+      ],
+      "recovery_or_rollback_requirements": [
+        "If the auth window is not secure or stale state remains unresolved, revert to the prior known-good browser and do not claim a live integration"
+      ],
+      "evidence_required": [
+        "Authenticated response metadata, image hashes, naturalWidth/naturalHeight, and a browser console review showing no decode or stale-state failure"
+      ],
+      "blocker_requires_operator": true
+    },
+    {
+      "priority": 3,
+      "mission_id": "ULTRON-CLOSE-05",
+      "objective": "Verify release closure and rollback integrity",
+      "prerequisites": [
+        "Current source and runtime ownership are established",
+        "The exact approved release scope is known"
+      ],
+      "scope": "Release allowlist, bundle creation, isolated restore rehearsal, and checksum verification",
+      "files_likely_to_change": [
+        "scripts/ultron_release_bundle.py",
+        "tests/runtime/test_release_bundle.py"
+      ],
+      "exclusions": [
+        "No live database mutation",
+        "No live service restart",
+        "No external dependency approval shortcut"
+      ],
+      "tests_and_acceptance_criteria": [
+        "The release archive and rollback artifact produce a clean, checksum-verified restore in an isolated environment"
+      ],
+      "recovery_or_rollback_requirements": [
+        "A verified rollback archive must exist and be independently checked before any deployment action"
+      ],
+      "evidence_required": [
+        "Bundle manifest, file allowlist, SHA-256 integrity status, and isolated restore evidence"
+      ],
+      "blocker_requires_operator": true
+    }
+  ]
+}

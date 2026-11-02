@@ -1,0 +1,110 @@
+[
+    {
+        "capability": "vision",
+        "reason": "Capability not detected in current skill architecture.",
+        "operation": "create",
+        "risk": "LOW",
+        "tests_passed": true,
+        "result": "accepted",
+        "timestamp": "2026-09-01T18:41:51.637846"
+    },
+    {
+        "capability": "vision",
+        "reason": "Priority calculated for vision",
+        "operation": "create",
+        "risk": "LOW",
+        "tests_passed": true,
+        "result": "accepted",
+        "timestamp": "2026-09-01T19:03:20.127449"
+    },
+    {
+        "capability": "vision",
+        "reason": "Capability not detected in current skill architecture.",
+        "operation": "create",
+        "risk": "LOW",
+        "tests_passed": true,
+        "result": "accepted",
+        "timestamp": "2026-09-01T19:14:04.560194"
+    },
+    {
+        "capability": "vision",
+        "reason": "Capability not detected in current skill architecture.",
+        "operation": "create",
+        "risk": "LOW",
+        "tests_passed": true,
+        "result": "accepted",
+        "timestamp": "2026-09-01T19:16:15.352867"
+    },
+    {
+        "capability": "vision",
+        "reason": "Existing capability requires optimization.",
+        "operation": "create",
+        "risk": "LOW",
+        "tests_passed": true,
+        "result": "accepted",
+        "timestamp": "2026-09-01T19:35:55.331915"
+    },
+    {
+        "capability": "vision",
+        "reason": "Existing capability requires optimization.",
+        "operation": "create",
+        "risk": "LOW",
+        "tests_passed": true,
+        "result": "accepted",
+        "timestamp": "2026-09-01T21:27:53.944741"
+    },
+    {
+        "capability": "vision",
+        "reason": "Existing capability requires optimization.",
+        "operation": "create",
+        "risk": "LOW",
+        "tests_passed": true,
+        "result": "accepted",
+        "timestamp": "2026-09-01T21:31:16.575787"
+    },
+    {
+        "capability": "vision",
+        "reason": "Existing capability requires optimization.",
+        "operation": "create",
+        "risk": "LOW",
+        "tests_passed": true,
+        "result": "accepted",
+        "timestamp": "2026-09-01T21:39:38.073176"
+    },
+    {
+        "capability": "market_data",
+        "reason": "Capability does not exist",
+        "operation": "create",
+        "risk": "LOW",
+        "tests_passed": true,
+        "result": "accepted",
+        "timestamp": "2026-09-01T21:55:37.270308"
+    },
+    {
+        "capability": "financial_analysis",
+        "reason": "Capability does not exist",
+        "operation": "create",
+        "risk": "LOW",
+        "tests_passed": true,
+        "result": "accepted",
+        "timestamp": "2026-09-01T21:58:52.093756"
+    },
+    {
+        "capability": "risk_management",
+        "reason": "Capability does not exist",
+        "operation": "create",
+        "risk": "LOW",
+        "tests_passed": true,
+        "result": "accepted",
+        "timestamp": "2026-09-01T21:58:56.352733"
+    },
+    {
+        "capability": "backtesting",
+        "reason": "Capability does not exist",
+        "operation": "create",
+        "risk": "LOW",
+        "tests_passed": true,
+        "result": "accepted",
+        "timestamp": "2026-09-01T21:59:00.784724"
+    }
+]

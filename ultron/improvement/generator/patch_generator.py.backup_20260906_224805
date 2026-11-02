@@ -1,0 +1,362 @@
+import json
+import re
+
+from ultron.improvement.domain.models import Patch
+
+
+class PatchGenerator:
+    """
+    Generates safe patch objects from improvement plans.
+    Supports modification and new component creation.
+    """
+
+    def __init__(
+    self,
+    advisor=None,
+    context_builder=None,
+    component_builder=None,
+    code_generator=None,
+):
+
+     self.advisor = advisor
+     self.context_builder = context_builder
+     self.component_builder = component_builder
+     self.code_generator = code_generator
+
+
+    def generate(
+        self,
+        plan: dict,
+    ) -> Patch:
+
+
+        operation = plan.get(
+            "operation",
+            "modify",
+        )
+
+
+        context = plan.get(
+            "context",
+            {},
+        )
+
+
+        if operation == "create":
+
+            return self._generate_creation_patch(
+                plan
+            )
+
+
+        return self._generate_modify_patch(
+            plan,
+            context,
+        )
+
+
+
+    def _generate_creation_patch(
+        self,
+        plan,
+    ) -> Patch:
+
+        capability = plan.get(
+            "target",
+            "unknown",
+        )
+
+        blueprint = plan.get(
+    "blueprint"
+)
+
+
+        if blueprint and self.code_generator:
+
+          files = self.code_generator.generate(
+        blueprint
+    )
+
+        return Patch(
+        target_file="",
+        description=(
+            f"Create {capability} component"
+        ),
+        operation="create",
+        files=files,
+        changes=(
+            "Generated component files"
+        ),
+        risk=plan.get(
+            "risk",
+            "LOW",
+        ),
+    )
+
+
+        response = None
+
+
+        if self.advisor:
+
+            response = self.advisor.generate_patch(
+                {
+                    **plan,
+                    "operation": "create",
+                }
+            )
+
+
+        if response:
+
+            parsed = self._parse_response(
+                response
+            )
+
+            if parsed:
+
+                return Patch(
+
+                    target_file="",
+
+                    description=parsed.get(
+                        "description",
+                        f"Create {capability} capability",
+                    ),
+
+                    operation="create",
+
+                    files=parsed.get(
+                        "files",
+                        [],
+                    ),
+
+                    changes=parsed.get(
+                        "changes",
+                        "",
+                    ),
+
+                    risk=plan.get(
+                        "risk",
+                        "LOW",
+                    ),
+
+                )
+
+
+        # Safe fallback:
+        # create proposal only,
+        # never modify existing files
+        return Patch(
+
+            target_file="",
+
+            description=(
+                f"Create isolated {capability} component"
+            ),
+
+            operation="create",
+
+            files=[],
+
+            changes=(
+                "Component creation required"
+            ),
+
+            risk=plan.get(
+                "risk",
+                "LOW",
+            ),
+
+        )
+
+
+
+    def _generate_modify_patch(
+        self,
+        plan,
+        context,
+    ) -> Patch:
+
+
+        response = None
+
+
+        if self.advisor:
+
+            response = self.advisor.generate_patch(
+                {
+                    **plan,
+                    "context": context,
+                }
+            )
+
+
+        if response:
+
+            parsed = self._parse_response(
+                response
+            )
+
+            if parsed:
+
+                return Patch(
+
+                    target_file=parsed.get(
+                        "file",
+                        (
+                            context["files"][0]["file"]
+                            if context.get("files")
+                            else ""
+                        ),
+                    ),
+
+                    description=parsed.get(
+                        "description",
+                        "",
+                    ),
+
+                    original_code=parsed.get(
+                        "original",
+                        "",
+                    ),
+
+                    replacement_code=parsed.get(
+                        "replacement",
+                        "",
+                    ),
+
+                    changes=parsed.get(
+                        "changes",
+                        "",
+                    ),
+
+                    risk=plan.get(
+                        "risk",
+                        "LOW",
+                    ),
+
+                    operation="modify",
+
+                )
+
+
+        files = context.get(
+            "files",
+            [],
+        )
+
+
+        target_file = "unknown"
+
+        original_code = ""
+
+
+        if files:
+
+            target_file = files[0].get(
+                "file",
+                "",
+            )
+
+            original_code = files[0].get(
+                "content",
+                "",
+            )
+
+
+        if not target_file:
+
+            target_file = plan.get(
+                "target",
+                "unknown",
+            )
+
+
+        if not original_code:
+
+            return Patch(
+
+                target_file=target_file,
+
+                description=(
+                    "No valid source context found."
+                ),
+
+                changes="",
+
+                original_code="",
+
+                replacement_code="",
+
+                risk="HIGH",
+
+                operation="modify",
+
+            )
+
+
+        return Patch(
+
+            target_file=target_file,
+
+            description=(
+                "Improve implementation based on analysis"
+            ),
+
+            changes=plan.get(
+                "problem",
+                "",
+            ),
+
+            original_code=original_code,
+
+            replacement_code=original_code,
+
+            risk=plan.get(
+                "risk",
+                "LOW",
+            ),
+
+            operation="modify",
+
+        )
+
+
+
+    def _parse_response(
+        self,
+        response,
+    ):
+
+        try:
+
+            if "```json" in response:
+
+                response = (
+                    response
+                    .split("```json")[1]
+                    .split("```")[0]
+                )
+
+
+            match = re.search(
+                r"\{.*\}",
+                response,
+                re.DOTALL,
+            )
+
+
+            if not match:
+
+                return None
+
+
+            return json.loads(
+                match.group()
+            )
+
+
+        except Exception:
+
+            return None

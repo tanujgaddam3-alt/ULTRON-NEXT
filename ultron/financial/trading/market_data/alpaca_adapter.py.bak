@@ -1,0 +1,106 @@
+from __future__ import annotations
+import os
+from datetime import UTC, datetime
+from typing import Any
+from ultron.financial.trading.market.models import Instrument, MarketType
+
+class AlpacaMarketDataError(RuntimeError):
+    pass
+
+class AlpacaMarketAdapter:
+    """Timestamp-aware, data-only Alpaca adapter for US equities."""
+    def __init__(self, api_key=None, secret_key=None, *, feed=None, max_quote_age_seconds=30.0):
+        self.api_key = api_key or os.getenv('ALPACA_API_KEY') or os.getenv('APCA_API_KEY_ID')
+        self.secret_key = secret_key or os.getenv('ALPACA_SECRET_KEY') or os.getenv('APCA_API_SECRET_KEY')
+        if not self.api_key or not self.secret_key:
+            raise AlpacaMarketDataError('Alpaca credentials are missing. Set ALPACA_API_KEY and ALPACA_SECRET_KEY.')
+        if max_quote_age_seconds <= 0:
+            raise ValueError('max_quote_age_seconds must be positive')
+        self.max_quote_age_seconds = float(max_quote_age_seconds)
+        self.feed = feed or os.getenv('ALPACA_DATA_FEED')
+        try:
+            from alpaca.data.enums import DataFeed
+            from alpaca.data.historical import StockHistoricalDataClient
+            from alpaca.data.requests import StockLatestTradeRequest
+            from alpaca.trading.client import TradingClient
+        except ImportError as exc:
+            raise AlpacaMarketDataError('alpaca-py is required for Alpaca market data') from exc
+        self._trade_request = StockLatestTradeRequest
+        self._data_feed_enum = DataFeed
+        self._data_client = StockHistoricalDataClient(self.api_key, self.secret_key)
+        self._trading_client = TradingClient(self.api_key, self.secret_key, paper=True)
+
+    @property
+    def market_type(self):
+        return MarketType.STOCK
+
+    @staticmethod
+    def _validate_symbol(symbol):
+        value = str(symbol).strip().upper()
+        if not value:
+            raise ValueError('Symbol is required')
+        if value.endswith(('.NS', '.BO')) or '/' in value or value.endswith('=X'):
+            raise AlpacaMarketDataError(f'{value} is not a supported Alpaca US-equity symbol')
+        if not value.replace('.', '').replace('-', '').isalnum():
+            raise ValueError(f'Invalid equity symbol: {value}')
+        return value
+
+    def _feed_value(self):
+        if not self.feed:
+            return None
+        try:
+            return self._data_feed_enum(self.feed.lower())
+        except (ValueError, AttributeError) as exc:
+            raise AlpacaMarketDataError(f'Unsupported ALPACA_DATA_FEED={self.feed!r}') from exc
+
+    def get_instrument(self, symbol):
+        value = self._validate_symbol(symbol)
+        return Instrument(symbol=value, market=MarketType.STOCK, base_currency='USD', quote_currency='USD')
+
+    def get_price(self, symbol):
+        return float(self.get_snapshot(symbol)['price'])
+
+    def get_snapshot(self, symbol) -> dict[str, Any]:
+        value = self._validate_symbol(symbol)
+        kwargs = {'symbol_or_symbols': value}
+        feed = self._feed_value()
+        if feed is not None:
+            kwargs['feed'] = feed
+        try:
+            response = self._data_client.get_stock_latest_trade(self._trade_request(**kwargs))
+            trade = response.get(value)
+            if trade is None:
+                raise AlpacaMarketDataError(f'Alpaca returned no latest trade for {value}')
+            timestamp = trade.timestamp
+            if timestamp.tzinfo is None:
+                raise AlpacaMarketDataError('Alpaca returned a timezone-naive timestamp')
+            now = datetime.now(UTC)
+            timestamp = timestamp.astimezone(UTC)
+            age = (now - timestamp).total_seconds()
+            if age < 0:
+                raise AlpacaMarketDataError('Alpaca returned a future-dated trade')
+            if age > self.max_quote_age_seconds:
+                raise AlpacaMarketDataError(f'Alpaca trade is stale ({age:.1f}s)')
+            price = float(trade.price)
+            if price <= 0:
+                raise AlpacaMarketDataError('Alpaca returned a non-positive trade price')
+            return {'symbol': value, 'price': price, 'timestamp': timestamp, 'retrieved_at': now,
+                    'provider': 'alpaca', 'feed': self.feed or 'account-default',
+                    'age_seconds': age, 'currency': 'USD'}
+        except AlpacaMarketDataError:
+            raise
+        except Exception as exc:
+            raise AlpacaMarketDataError(f'Alpaca request failed for {value}: {type(exc).__name__}: {exc}') from exc
+
+    def is_market_open(self, symbol):
+        self._validate_symbol(symbol)
+        try:
+            return bool(self._trading_client.get_clock().is_open)
+        except Exception as exc:
+            raise AlpacaMarketDataError(f'Could not verify US market clock: {type(exc).__name__}: {exc}') from exc
+
+    def get_capabilities(self, symbol):
+        value = self._validate_symbol(symbol)
+        return {'symbol': value, 'provider': 'alpaca', 'latest_trade': True,
+                'historical_bars': False, 'streaming': False, 'market_clock': True,
+                'market': 'US_equities_only', 'order_submission': False}

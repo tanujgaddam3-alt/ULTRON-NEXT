@@ -1,0 +1,124 @@
+{
+  "schema_version": 1,
+  "observed_at": "2026-10-27T17:51+05:30",
+  "scope": "Current source entrypoints and existing architecture/test evidence. Not an exhaustive dynamic-loading or import-closure audit.",
+  "source_level_disconnected_components_confirmed": [],
+  "no_cleanup_performed": true,
+  "findings": [
+    {
+      "id": "runtime-manager-ownership-artifact-mismatch",
+      "component": "Launcher service manager",
+      "source_paths": [
+        "scripts/ultron_service_manager.py",
+        "docs/RUNTIME_OPERATIONS.md"
+      ],
+      "expected_behavior": "While supervising children, the manager retains an exclusive lifetime lease and the control channel; a new manager does not adopt existing processes without validated transfer.",
+      "actual_evidence": "At 2026-10-27 approximately 17:51 +05:30, PID 6943 remained parent of four recorded services whose recorded process identities matched, while manager.lease and manager.sock and matching descriptors were absent. Four expected loopback listener owners remained present.",
+      "missing_connection_or_contract": "The live runtime state is inconsistent with the current source ownership contract. Cause and loaded source version are unknown; no supported adoption/handoff is available.",
+      "user_visible_impact": "Manager control and recovery ownership cannot be safely reconciled; helper restart/control requests cannot be proven to reach the running supervisor through the expected socket.",
+      "smallest_safe_fix": "No live fix in this mission. Require the original manager terminal and an explicitly authorized maintenance procedure. A future cooperative, versioned owner handoff is a separate design and implementation.",
+      "regression_tests": [
+        "tests/runtime/test_service_manager.py::test_separate_manager_refuses_to_adopt_recorded_process_without_transfer",
+        "tests/runtime/test_service_manager.py::test_legacy_manager_without_lease_or_socket_blocks_new_owner",
+        "tests/runtime/test_service_manager.py::test_manager_lease_is_exclusive_and_control_schema_is_bounded"
+      ],
+      "status": "PROVEN_RUNTIME_ANOMALY_CAUSE_UNRESOLVED"
+    },
+    {
+      "id": "authenticated-dashboard-data-flow",
+      "component": "Local authentication helper, gateway, CRE status, scene gallery, and dashboard",
+      "source_paths": [
+        "ultron/application/runtime/local_auth_helper.py",
+        "ultron/application/runtime/interface_gateway.py",
+        "ultron/application/content/service.py",
+        "interface/services/providers/websocketProvider.js",
+        "interface/services/renderCreAudioEvidence.js"
+      ],
+      "expected_behavior": "Private local unlock establishes an authenticated WebSocket; current backend status and owner-filtered persisted CRE artifacts render with freshness, errors, hashes, and stale indicators.",
+      "actual_evidence": "The normal unlock dialog was visible in the earlier shared browser session. The operator was unavailable; no authenticated browser request, persisted image decode, live owner-isolation test, or current CRE response was observed.",
+      "missing_connection_or_contract": "Live authenticated response-to-render data flow and current evidence/hash agreement are unverified, not shown to be disconnected.",
+      "user_visible_impact": "No defensible live claim can be made about current CRE status, scene gallery, freshness, or owner-isolation behavior.",
+      "smallest_safe_fix": "No source change indicated. Have an operator unlock privately and complete the non-mutating procedure in docs/ULTRON_AUTHENTICATED_VERIFICATION_RUNBOOK.md; use an authorized second principal or supported fixture for isolation.",
+      "regression_tests": [
+        "tests/interface/test_interface_gateway_cre_status.py",
+        "tests/interface/test_local_auth_helper.py",
+        "tests/interface/test_interface_authentication.py",
+        "interface/tests/creStatus.test.mjs",
+        "interface/tests/websocketProvider.test.mjs",
+        "interface/tests/renderCreAudioEvidence.test.mjs"
+      ],
+      "status": "UNVERIFIED"
+    },
+    {
+      "id": "complete-release-file-closure",
+      "component": "Release and rollback",
+      "source_paths": [
+        "scripts/ultron_release_bundle.py",
+        "requirements.txt",
+        "interface/package.json"
+      ],
+      "expected_behavior": "An explicitly reviewed file allowlist and reproducible dependency set produce a checksummed release that can be restored and qualified as rollback.",
+      "actual_evidence": "The bundle tool requires a caller-supplied allowlist. Root requirements are not a full resolved lock, no approved allowlist or complete file closure exists, and no known-good archive/rollback artifact was established.",
+      "missing_connection_or_contract": "No evidence binds all runtime source/assets/dependencies to one approved release identity.",
+      "user_visible_impact": "Deployment and rollback cannot be validated.",
+      "smallest_safe_fix": "Complete runtime/import/config/schema closure and dependency resolution, obtain license approval, approve an exact allowlist, then build/verify/restore a separate bundle and preserve its independent checksum/test evidence.",
+      "regression_tests": [
+        "tests/runtime/test_release_bundle.py"
+      ],
+      "status": "PROVEN_READINESS_BLOCKER"
+    },
+    {
+      "id": "pymupdf-license-approval",
+      "component": "Learning PDF workflows",
+      "source_paths": [
+        "requirements.txt",
+        "ultron/learning/teacher/pdf_loader.py",
+        "ultron/learning/teacher/loaders/pdf_loader.py",
+        "ultron/learning/document/analyzer.py"
+      ],
+      "expected_behavior": "PDF ingestion/analysis dependency and license are approved for the intended deployment/distribution.",
+      "actual_evidence": "Three direct PyMuPDF/fitz usages and root requirement are present. Upstream documents AGPL and commercial licensing alternatives; no organizational decision is recorded.",
+      "missing_connection_or_contract": "Legal/compliance decision and approved version/lock are absent.",
+      "user_visible_impact": "Release scope cannot be cleared for deployment; learning PDF functionality must not be silently removed or replaced.",
+      "smallest_safe_fix": "Obtain documented AGPL compliance approval or Artifex commercial-license approval; then record/pin the approved dependency.",
+      "regression_tests": [],
+      "status": "PROVEN_APPROVAL_BLOCKER"
+    },
+    {
+      "id": "transformers-advisory-applicability",
+      "component": "Optional XTTS reference staging",
+      "source_paths": [
+        "ultron/voice/reference_staging/xtts-cpu-inference-20261017T2247/requirements.lock.txt",
+        "ultron/voice/tts/xtts_engine.py",
+        "ultron/voice/server.py"
+      ],
+      "expected_behavior": "Advisory applicability is assessed against the exact package version and reachable model-loading path.",
+      "actual_evidence": "Reference lock and package metadata show 4.57.6; OSV CVE-2026-5241 lists version 5.2.0 and describes LightGlue nested-config remote-code execution. The managed voice service explicitly selects Edge. No LightGlue or AutoModel.from_pretrained call was found in the reviewed managed voice/application files.",
+      "missing_connection_or_contract": "No exhaustive audit of every reference-staging script or downloaded model workflow was completed.",
+      "user_visible_impact": "Do not report confirmed exposure or declare the optional environment safe until its actual execution paths are inventoried.",
+      "smallest_safe_fix": "Correct the earlier scanner statement that 4.57.6 is confirmed affected; trace reference-staging model loaders and rescan the exact deployed environment before disposition.",
+      "regression_tests": [],
+      "status": "SCANNER_APPLICABILITY_UNCONFIRMED"
+    }
+  ],
+  "intentional_separation": [
+    {
+      "component": "Standalone financial dashboard",
+      "evidence": "Separate Streamlit entrypoint and surface, not served through the local-unlock operator console.",
+      "status": "Intentional; not treated as a disconnected defect."
+    },
+    {
+      "component": "Interactive main.py gateway path",
+      "evidence": "Distinct entrypoint from launcher-managed gateway; both cannot safely own the same ports concurrently.",
+      "status": "Intentional; not treated as a disconnected defect."
+    },
+    {
+      "component": "XTTS reference workflow",
+      "evidence": "Managed voice service is invoked with --engine edge; nested XTTS environment is separate reference staging.",
+      "status": "Not part of the managed Edge runtime release; optional workflow remains separately unverified."
+    }
+  ],
+  "retained_uncertain_files": [
+    "Legacy/back-up/reference-staging files were not removed; dynamic loading, external scripts, and recovery use were not ruled out."
+  ]
+}

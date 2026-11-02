@@ -1,0 +1,1290 @@
+from pathlib import Path
+
+from ultron.execution.executor import Executor
+from ultron.ai.llm.ollama_provider import OllamaProvider
+from ultron.ai.llm.provider import ProviderManager
+from ultron.application.cognitive_service import CognitiveService
+from ultron.application.execution_service import ExecutionService
+from ultron.application.goal_service import GoalService
+from ultron.application.improvement_service import (
+    ImprovementService,
+)
+from ultron.application.learning_service import LearningService
+from ultron.application.memory_service import MemoryService
+from ultron.application.planning_service import PlanningService
+from ultron.application.reasoning_service import ReasoningService
+from ultron.application.reflection_service import ReflectionService
+from ultron.application.runtime.runtime import CognitiveRuntime
+from ultron.application.runtime.operation_store import SQLiteOperationStore
+from ultron.application.semantic_learning_service import (
+    SemanticLearningService,
+)
+from ultron.application.task_service import TaskService
+from ultron.cognition.attention.engine import AttentionEngine
+from ultron.cognition.blackboard import Blackboard
+from ultron.cognition.context.engine import ContextEngine
+from ultron.cognition.inference.engine import InferenceEngine
+from ultron.cognition.reasoning.engine import ReasoningEngine
+from ultron.cognition.schema.engine import SchemaEngine
+from ultron.cognition.schema.keyword_matcher import KeywordSchemaMatcher
+from ultron.cognition.schema.repository import SchemaRepository
+from ultron.cognition.understanding import UnderstandingEngine
+from ultron.core.event_bus import EventBus
+from ultron.core.system_registry import SystemRegistry
+from ultron.decision.engine import DecisionEngine
+from ultron.execution.engine import ExecutionEngine
+from ultron.executive.goals.evaluator import GoalEvaluator
+from ultron.executive.goals.tracker import GoalTracker
+from ultron.executive.goals.translator import GoalTranslator
+from ultron.executive.tasks.evaluator import TaskEvaluator
+from ultron.executive.tasks.manager import TaskManager
+from ultron.executive.tasks.tracker import TaskTracker
+from ultron.executive.tasks.translator import TaskTranslator
+from ultron.files.artifact_service import ArtifactService
+from ultron.files.manager import FileManager
+from ultron.files.repository.sqlite import SQLiteArtifactRepository
+from ultron.files.service import FileService
+from ultron.goals.manager import GoalManager
+from ultron.goals.repository import GoalRepository
+from ultron.improvement.advisor.improvement_advisor import (
+    ImprovementAdvisor,
+)
+from ultron.improvement.analyzer.code_analyzer import (
+    CodeAnalyzer,
+)
+from ultron.improvement.analyzer.code_locator import (
+    CodeLocator,
+)
+from ultron.improvement.analyzer.context_builder import (
+    ContextBuilder,
+)
+from ultron.improvement.analyzer.failure_analyzer import (
+    FailureAnalyzer,
+)
+from ultron.improvement.analyzer.relevance_scorer import (
+    CodeRelevanceScorer,
+)
+from ultron.improvement.apply.patch_applier import (
+    PatchApplier,
+)
+from ultron.improvement.generator.patch_generator import (
+    PatchGenerator,
+)
+from ultron.improvement.listeners.failure_listener import (
+    FailureListener,
+)
+from ultron.improvement.manager import (
+    ImprovementManager,
+)
+from ultron.improvement.planner.improvement_planner import (
+    ImprovementPlanner,
+)
+from ultron.improvement.repository.improvement_repository import (
+    ImprovementRepository,
+)
+from ultron.improvement.security_bridge import (
+    ImprovementSecurityBridge,
+)
+from ultron.improvement.validator.quality_checker import (
+    QualityChecker,
+)
+from ultron.improvement.validator.safety_validator import (
+    SafetyValidator,
+)
+from ultron.improvement.validator.test_runner import (
+    TestRunner,
+)
+from ultron.knowledge.consolidator import (
+    KnowledgeConsolidator,
+)
+from ultron.knowledge.context_provider import (
+    KnowledgeContextProvider,
+)
+from ultron.knowledge.extraction.entity_extractor import (
+    EntityExtractor,
+)
+from ultron.knowledge.extraction.pipeline import (
+    KnowledgeExtractionPipeline,
+)
+from ultron.knowledge.fusion import (
+    KnowledgeFusionEngine,
+)
+from ultron.knowledge.graph import (
+    KnowledgeGraph,
+)
+from ultron.knowledge.ingestion import (
+    KnowledgeIngestionService,
+)
+from ultron.knowledge.manager import KnowledgeManager
+from ultron.knowledge.repository.sqlite import (
+    SQLiteKnowledgeRepository,
+)
+from ultron.knowledge.retrieval import (
+    KnowledgeRetriever,
+)
+from ultron.knowledge.service import (
+    KnowledgeService,
+)
+from ultron.knowledge.validator import (
+    KnowledgeValidator,
+)
+from ultron.learning.curriculum.manager import (
+    CurriculumManager,
+)
+from ultron.learning.orchestrator.teacher_orchestrator import (
+    TeacherOrchestrator,
+)
+from ultron.learning.progress.tracker import (
+    ProgressTracker,
+)
+from ultron.learning.teacher.teacher import (
+    TeacherService,
+)
+from ultron.memory.manager import MemoryManager
+from ultron.memory.semantic.manager import (
+    SemanticMemoryManager,
+)
+from ultron.memory.semantic.repository import (
+    SemanticMemoryRepository,
+)
+from ultron.perception.engine import PerceptionEngine
+from ultron.planning.engine import PlanningEngine
+from ultron.planning.strategy_memory import (
+    StrategyMemory,
+)
+from ultron.projects.manager import ProjectManager
+from ultron.projects.repository.sqlite import SQLiteProjectRepository
+from ultron.reflection.engine import ReflectionEngine
+from ultron.security.core.security_manager import (
+    SecurityManager,
+)
+from ultron.security.improvement.backup.manager import (
+    BackupManager,
+)
+from ultron.security.improvement.controller import (
+    SecureImprovementController,
+)
+from ultron.security.improvement.deployment import (
+    DeploymentController,
+)
+from ultron.security.improvement.guardian_adapter import (
+    ImprovementGuardianAdapter,
+)
+from ultron.security.improvement.sandbox.manager import (
+    SandboxEnvironment,
+)
+from ultron.security.improvement.validator import (
+    ImprovementValidator,
+)
+from ultron.skills.file.skill import FileSkill
+from ultron.skills.manager import SkillManager
+from ultron.skills.project.skill import ProjectSkill
+from ultron.smith import SmithService
+from ultron.world.engine import WorldEngine
+
+from ultron.conversation.manager import ConversationManager
+from ultron.cognition.schema.defaults import load_default_schemas
+from ultron.cognition.schema.performance import (
+    SchemaPerformanceLearner,
+)
+from ultron.smith.storage.repository import MetricsRepository
+from ultron.cognition.self_awareness.engine import (
+    SelfAwarenessEngine,
+)
+from ultron.skills.self_awareness.skill import (
+    SelfAwarenessSkill,
+)
+from ultron.skills.improvement.skill import (
+    ImprovementSkill,
+)
+from ultron.agents.orchestrator import AgentOrchestrator
+from ultron.agents.research.agent import ResearchAgent
+from ultron.agents.planning.agent import PlanningAgent
+from ultron.agents.security.agent import SecurityAgent
+from ultron.agents.workflow.executor import (
+    AgentWorkflowExecutor,
+)
+from ultron.agents.workflow.engine import (
+    AgentWorkflowEngine,
+)
+from ultron.improvement.strategy.engine import (
+    ImprovementStrategyEngine,
+)
+from ultron.improvement.strategy.engine import (
+    ImprovementStrategy,
+)
+from ultron.improvement.generator.component_code_generator import (
+    ComponentCodeGenerator,
+)
+from ultron.improvement.registry.capability_registry import (
+    CapabilityRegistry,
+)
+from ultron.improvement.memory.experience_memory import (
+    ExperienceMemory,
+)
+from ultron.improvement.prioritization.engine import (
+    ImprovementPriorityEngine,
+)
+from ultron.improvement.autonomous.controller import (
+    AutonomousImprovementController,
+)
+from ultron.improvement.evaluation.engine import (
+    ImprovementEvaluationEngine,
+)
+
+from ultron.improvement.evaluation.capability_metrics import (
+    CapabilityMetrics,
+)
+from ultron.improvement.evolution.analyzer import (
+    CapabilityEvolutionAnalyzer,
+)
+
+from ultron.improvement.evolution.engine import (
+    CapabilityEvolutionEngine,
+)
+from ultron.improvement.evolution_memory.memory import (
+    EvolutionMemory,
+)
+from ultron.improvement.learning.evolution_learning import (
+    EvolutionLearningEngine,
+)
+from ultron.improvement.goals.analyzer import (
+    GoalCapabilityAnalyzer,
+)
+from ultron.improvement.goals.planner import (
+    GoalEvolutionPlanner,
+)
+from ultron.improvement.goals.controller import (
+    GoalEvolutionController,
+)
+from ultron.improvement.goals.executor import (
+    GoalEvolutionExecutor,
+)
+from ultron.improvement.templates.loader import (
+    CapabilityTemplateLoader
+)
+from ultron.improvement.verification.capability_verifier import (
+    CapabilityVerifier,
+)
+from ultron.improvement.metrics.capability_evaluator import (
+    CapabilityEvaluator,
+)
+from ultron.financial.agent.financial_agent import FinancialAgent
+from ultron.financial.trading.paper_broker import PaperBroker
+from ultron.financial.trading.engine import PaperTradingEngine
+from ultron.financial.trading.controller import FinancialTradingController
+from ultron.financial.trading.market_data.service import MarketDataService
+from ultron.financial.trading.market_data.alpaca_adapter import AlpacaMarketAdapter
+from ultron.financial.trading.coinbase_advanced import (
+    CoinbaseAdvancedClient,
+)
+from ultron.security.permission.rules import (
+    require_simulation_execution_backend,
+)
+from ultron.financial.trading.market_data.coinbase_adapter import (
+    CoinbaseMarketAdapter,
+)
+from ultron.financial.trading.market_data.oanda_adapter import (
+    OandaMarketAdapter,
+)
+from ultron.autonomy.loop import AutonomyLoop
+from ultron.autonomy.monitor import AutonomyMonitor
+from ultron.autonomy.planner import AutonomousPlanner
+from ultron.autonomy.policy import AutonomyPolicy
+from ultron.autonomy.priority import GoalPriorityEngine
+from ultron.autonomy.storage.goal_store import GoalStore
+from ultron.agents.prime.agent import PrimeAgent
+from ultron.skills.risk_management.skill import Risk_managementSkill
+from ultron.skills.backtesting.skill import BacktestingSkill
+from ultron.financial.strategies.selector import StrategySelector
+from ultron.financial.planning import (
+    FinancialPlanner,
+    FinancialPlanExecutor,
+)
+from ultron.financial.planning.handlers import (
+    build_financial_plan_handlers,
+)
+import os
+class Container:
+    """
+    Dependency Injection Container.
+    """
+
+    def __init__(self):
+        
+
+        self.event_bus = EventBus()
+        operation_database = os.environ.get("ULTRON_OPERATION_DB")
+        self.execution_audit_store = (
+            SQLiteOperationStore(operation_database)
+            if operation_database
+            else None
+        )
+
+        self.blackboard = Blackboard()
+
+        # -----------------------------
+        # Memory
+        # -----------------------------
+
+        self.memory = MemoryManager()
+
+        self.semantic_repository = SemanticMemoryRepository()
+
+        self.semantic_memory = SemanticMemoryManager(
+            repository=self.semantic_repository,
+        )
+
+        # -----------------------------
+        # World
+        # -----------------------------
+
+        self.world = WorldEngine(
+            event_bus=self.event_bus,
+        )
+        self.system_registry = SystemRegistry()
+
+        # -----------------------------
+        # Goals
+        # -----------------------------
+
+        self.goal_repository = GoalRepository()
+
+        self.goal_manager = GoalManager(
+            repository=self.goal_repository,
+        )
+
+        # -----------------------------
+        # Perception
+        # -----------------------------
+
+        self.perception = PerceptionEngine()
+
+        self.understanding = UnderstandingEngine()
+
+        self.attention = AttentionEngine()
+
+        # -----------------------------
+        # Schema System
+        # -----------------------------
+
+        self.schema_repository = SchemaRepository()
+
+        load_default_schemas(
+        self.schema_repository
+        )
+
+        
+
+        self.schema_matcher = KeywordSchemaMatcher(
+        self.schema_repository
+         )
+
+        self.schema_engine = SchemaEngine(
+        self.schema_matcher
+        )
+        self.schema_learner = SchemaPerformanceLearner(
+        self.schema_repository
+)
+        # -----------------------------
+        # Project Intelligence
+        # -----------------------------
+
+        self.project_repository = SQLiteProjectRepository()
+
+        self.projects = ProjectManager(
+            repository=self.project_repository,
+            event_bus=self.event_bus,
+        )
+        # -----------------------------
+        # Agent System
+        # -----------------------------
+
+        self.agent_orchestrator = AgentOrchestrator()
+
+        
+
+        self.agent_orchestrator.register(
+         ResearchAgent()
+        )
+
+        self.agent_orchestrator.register(
+        PlanningAgent()
+        )
+
+        self.coding_agent = None
+        self.agent_orchestrator.register(
+        SecurityAgent()
+        )
+
+        # -----------------------------
+# Agent Workflow
+# -----------------------------
+
+        self.workflow_engine = AgentWorkflowEngine()
+
+        self.workflow_executor = AgentWorkflowExecutor(
+            self.agent_orchestrator.registry
+        )
+
+        # -----------------------------
+        # Skills
+        # -----------------------------
+
+        self.skills = SkillManager()
+
+        self.file_manager = FileManager()
+
+        self.artifact_repository = SQLiteArtifactRepository()
+
+        self.artifact_service = ArtifactService(
+            repository=self.artifact_repository,
+        )
+
+        self.file_service = FileService(
+            file_manager=self.file_manager,
+            project_manager=self.projects,
+            artifact_service=self.artifact_service,
+        )
+
+        self.skills.register(FileSkill(self.file_service))
+
+        self.skills.register(
+            ProjectSkill(
+                project_manager=self.projects,
+                file_service=self.file_service,
+            )
+        )
+
+        
+
+        self.executor = Executor(
+             skills=self.skills,
+             audit_store=self.execution_audit_store,
+        )
+
+        self.knowledge_repository = SQLiteKnowledgeRepository()
+
+        self.knowledge_service = KnowledgeService(
+            repository=self.knowledge_repository,
+        )
+        from ultron.learning.patterns.knowledge_service import (
+            PatternKnowledgeService,
+        )
+
+        self.pattern_knowledge = PatternKnowledgeService(
+            knowledge_service=self.knowledge_service
+        )
+
+        self.knowledge_graph = KnowledgeGraph()
+
+        self.knowledge_retriever = KnowledgeRetriever(
+            repository=self.knowledge_repository,
+            graph=self.knowledge_graph,
+        )
+
+        self.knowledge_validator = KnowledgeValidator()
+
+        self.knowledge_consolidator = KnowledgeConsolidator()
+        from ultron.knowledge.extraction.concept_extractor import (
+            ConceptExtractor,
+        )
+        from ultron.knowledge.extraction.entity_detector import (
+            EntityDetector,
+        )
+        from ultron.knowledge.extraction.fact import (
+            FactExtractor,
+        )
+        from ultron.knowledge.extraction.relationship import (
+            RelationshipExtractor,
+        )
+        
+
+        self.entity_detector = EntityDetector(
+            keywords=[
+                "physics",
+                "force",
+                "energy",
+                "motion",
+                "velocity",
+                "acceleration",
+                "gravity",
+                "mass",
+                "momentum",
+                "thermodynamics",
+                "electricity",
+                "magnetism",
+                "quantum",
+            ]
+        )
+
+        self.concept_extractor = ConceptExtractor(
+            entity_detector=self.entity_detector,
+        )
+        self.entity_extractor = EntityExtractor(self.entity_detector)
+
+        self.relationship_extractor = RelationshipExtractor()
+
+        self.fact_extractor = FactExtractor()
+
+        from ultron.knowledge.extraction.curriculum_parser import (
+            CurriculumParser,
+        )
+
+        self.knowledge_pipeline = KnowledgeExtractionPipeline(
+            preprocessors=[CurriculumParser()],
+            entity_extractor=self.entity_extractor,
+            concept_extractor=self.concept_extractor,
+            relationship_extractor=self.relationship_extractor,
+            fact_extractor=self.fact_extractor,
+        )
+        from ultron.knowledge.extraction.curriculum_extractor import (
+            CurriculumExtractor,
+        )
+
+        self.curriculum_extractor = CurriculumExtractor()
+
+        self.knowledge_ingestion = KnowledgeIngestionService(
+            extraction_pipeline=self.knowledge_pipeline,
+            fusion_engine=KnowledgeFusionEngine(),
+            validator=self.knowledge_validator,
+            consolidator=self.knowledge_consolidator,
+            knowledge_service=self.knowledge_service,
+        )
+
+        self.knowledge = KnowledgeManager(
+            ingestion_service=self.knowledge_ingestion,
+            retrieval_engine=self.knowledge_retriever,
+            graph=self.knowledge_graph,
+            repository=self.knowledge_repository,
+        )
+        from ultron.learning.experience.service import (
+            ExperienceKnowledgeService,
+        )
+
+        self.experience_knowledge = ExperienceKnowledgeService(
+            knowledge_manager=self.knowledge
+        )
+        self.semantic_learning = SemanticLearningService(
+            semantic_memory=self.semantic_memory,
+            knowledge_manager=self.knowledge,
+        )
+        # -----------------------------
+        # Education / Teaching System
+        # -----------------------------
+
+        self.curriculum = CurriculumManager()
+
+        self.progress = ProgressTracker()
+
+        self.teacher = TeacherService(
+            knowledge_manager=self.knowledge,
+        )
+        from ultron.learning.education.processor import (
+            EducationalProcessor,
+        )
+
+        self.education_processor = EducationalProcessor(
+            knowledge_manager=self.knowledge,
+        )
+
+        self.teacher_orchestrator = TeacherOrchestrator(
+            processor=self.education_processor,
+            curriculum=self.curriculum,
+            progress=self.progress,
+        )
+        from ultron.learning.experience.analyzer import (
+            ExperienceAnalyzer,
+        )
+        from ultron.learning.experience.store import (
+            ExperienceStore,
+        )
+
+        self.experience_store = ExperienceStore()
+
+        self.experience_analyzer = ExperienceAnalyzer(self.experience_store)
+        from ultron.decision.learning.provider import (
+            DecisionLearningProvider,
+        )
+
+        self.decision_learning = DecisionLearningProvider(
+            experience_analyzer=self.experience_analyzer
+        )
+        from ultron.learning.handler import (
+            LearningEventHandler,
+        )
+
+        self.learning_handler = LearningEventHandler(
+            learning_service=self.semantic_learning
+        )
+
+        self.event_bus.subscribe(
+            "learning",
+            self.learning_handler.handle,
+        )
+        self.inference = InferenceEngine()
+
+        self.knowledge_provider = KnowledgeContextProvider(
+            knowledge_manager=self.knowledge,
+            inference_engine=self.inference,
+        )
+        self.security = SecurityManager()
+        self.improvement_security_validator = ImprovementValidator()
+
+        self.improvement_backup = BackupManager()
+
+        self.improvement_sandbox = SandboxEnvironment()
+
+        self.improvement_deployment = DeploymentController(
+            validator=self.improvement_security_validator,
+            sandbox=self.improvement_sandbox,
+            backup=self.improvement_backup,
+        )
+
+        self.improvement_guardian = ImprovementGuardianAdapter(self.security.guardian)
+
+        self.secure_improvement_controller = SecureImprovementController(
+            validator=self.improvement_security_validator,
+            deployment=self.improvement_deployment,
+            guardian=self.improvement_guardian,
+        )
+        self.llm_provider = ProviderManager(OllamaProvider())
+
+        self.improvement_advisor = ImprovementAdvisor(self.llm_provider)
+
+        
+
+        self.improvement_repository = ImprovementRepository()
+        self.code_locator = CodeLocator(".")
+
+        self.context_builder = ContextBuilder(
+            self.code_locator,
+            CodeRelevanceScorer(),
+        )
+
+        from ultron.improvement.builder.component_builder import (
+    ComponentBuilder,
+)
+
+        template_loader = CapabilityTemplateLoader()
+
+
+        self.component_builder = ComponentBuilder(
+        template_loader=template_loader
+)
+
+        self.improvement_strategy = ImprovementStrategyEngine()
+
+        self.component_code_generator = ComponentCodeGenerator()
+
+        self.capability_registry = CapabilityRegistry()
+
+        self.goal_capability_analyzer = (
+    GoalCapabilityAnalyzer(
+        self.capability_registry
+    )
+)
+
+        from ultron.skills.loader.skill_loader import SkillLoader
+
+        self.skill_loader = SkillLoader(
+    self.capability_registry
+)
+        self.experience_memory = ExperienceMemory()
+
+        self.priority_engine = ImprovementPriorityEngine()
+
+        self.capability_metrics = CapabilityMetrics()
+
+        
+
+
+        
+
+        self.capability_evolution_analyzer = (
+    CapabilityEvolutionAnalyzer(
+        self.capability_registry,
+        self.capability_metrics,
+    )
+)
+
+
+        self.capability_evolution_engine = (
+    CapabilityEvolutionEngine()
+)
+
+        self.evaluation_engine = (
+    ImprovementEvaluationEngine()
+)
+        self.evolution_memory = EvolutionMemory()
+
+        self.evolution_learning = (
+    EvolutionLearningEngine(
+        self.evolution_memory
+    )
+)
+        self.goal_evolution_planner = (
+    GoalEvolutionPlanner()
+)
+        self.test_runner = TestRunner()
+        
+        
+        
+        
+
+        
+
+        self.improvement_manager = ImprovementManager(
+            analyzer=CodeAnalyzer(),
+            planner=ImprovementPlanner(),
+            generator=PatchGenerator(
+                advisor=self.improvement_advisor,
+                context_builder=self.context_builder,
+                 code_generator=self.component_code_generator,
+                 coding_agent=self.coding_agent,
+            ),
+            context_builder=self.context_builder,
+             component_builder=self.component_builder,
+              strategy_engine=self.improvement_strategy,
+            test_runner=TestRunner(),
+            quality_checker=QualityChecker(),
+            safety_validator=SafetyValidator(),
+            failure_analyzer=FailureAnalyzer(),
+            security_controller=self.secure_improvement_controller,
+            security_bridge=ImprovementSecurityBridge(),
+            patch_applier=PatchApplier(
+                workspace_root=Path(__file__).resolve().parents[2],
+            ),
+            capability_registry=self.capability_registry,
+            experience_memory=self.experience_memory,
+            repository=self.improvement_repository,
+
+
+)
+        self.capability_evaluator = CapabilityEvaluator(
+                    registry=self.capability_registry,
+                    history=self.evolution_memory,
+                    test_runner=self.test_runner,
+                )
+        
+        self.improvement_strategy = (
+    ImprovementStrategyEngine()
+)
+
+        self.improvement_backup = BackupManager()
+
+        self.improvement_patch_applier = PatchApplier(
+            workspace_root=Path(__file__).resolve().parents[2]
+        )
+
+        self.improvement_service = ImprovementService(
+        self.improvement_manager,
+        self.improvement_advisor,
+        )
+
+        self.goal_evolution_controller = (
+            GoalEvolutionController(
+        
+                self.goal_capability_analyzer,
+        
+                self.goal_evolution_planner,
+        
+                self.capability_evolution_analyzer,
+        
+                self.capability_evolution_engine,
+        
+                self.improvement_manager,
+        
+            )
+        )
+        self.capability_verifier = CapabilityVerifier(
+    registry=self.capability_registry,
+    evaluator=self.capability_evaluator,
+)
+
+        self.goal_evolution_controller = (
+    GoalEvolutionController(
+
+        self.goal_capability_analyzer,
+
+        self.goal_evolution_planner,
+
+        self.capability_evolution_analyzer,
+
+        self.capability_evolution_engine,
+
+        self.improvement_manager,
+
+        self.capability_verifier,
+
+    )
+)
+        self.goal_evolution_executor = (
+    GoalEvolutionExecutor(
+
+        self.goal_capability_analyzer,
+
+        self.goal_evolution_planner,
+
+        self.goal_evolution_controller,
+
+        self.capability_registry,
+
+    )
+)
+        
+        self.failure_listener = FailureListener(self.improvement_service)
+
+        self.event_bus.subscribe(
+            "failure",
+            self.failure_listener.handle,
+        )
+        
+        
+
+        # -----------------------------
+        # Context
+        # -----------------------------
+
+        self.context = ContextEngine(
+            memory_manager=self.memory,
+            goal_manager=self.goal_manager,
+            schema_engine=self.schema_engine,
+            attention_engine=self.attention,
+            world_engine=self.world,
+            skill_manager=self.skills,
+            knowledge_provider=self.knowledge_provider,
+        )
+        self.schema_performance_learner = (
+        SchemaPerformanceLearner(
+        self.schema_repository
+    )
+)
+        from ultron.smith.storage.repository import MetricsRepository
+
+        self.metrics_repository = MetricsRepository()
+
+        self.smith = SmithService(
+         repository=self.metrics_repository,
+         schema_learner=self.schema_performance_learner,
+)
+        self.self_awareness = SelfAwarenessEngine(
+          skills=self.skills,
+          schema_repository=self.schema_repository,
+           smith=self.smith,
+)
+        self.skills.register(
+          SelfAwarenessSkill(
+        self.self_awareness
+    )
+)
+        self.skills.register(
+        ImprovementSkill(
+        improvement_service=self.improvement_service,
+        self_awareness=self.self_awareness,
+        agent_orchestrator=self.agent_orchestrator,
+         workflow_engine=self.workflow_engine,
+         workflow_executor=self.workflow_executor,
+    )
+)
+        self.autonomous_controller = (
+    AutonomousImprovementController(
+        self.self_awareness,
+        self.priority_engine,
+        self.improvement_manager,
+        evaluation_engine=self.evaluation_engine,
+
+        capability_metrics=self.capability_metrics,
+        evolution_analyzer=
+        self.capability_evolution_analyzer,
+
+        evolution_engine=
+        self.capability_evolution_engine,
+        evolution_memory=
+        self.evolution_memory,
+    )
+)
+        from ultron.agents.coding.agent import CodingAgent
+
+        self.coding_agent = CodingAgent(
+    improvement_service=self.improvement_service,
+    llm_provider=self.llm_provider,
+)
+
+        self.improvement_manager.generator.coding_agent = self.coding_agent
+
+        self.agent_orchestrator.register(
+    self.coding_agent
+)
+        file_skill = self.skills.get_skill("write_file")
+
+        if file_skill is None:
+           raise RuntimeError(
+        "FileSkill is not registered."
+    )
+
+        if not hasattr(file_skill, "set_coding_agent"):
+           raise RuntimeError(
+        "Registered FileSkill does not support CodingAgent binding."
+    )
+
+        file_skill.set_coding_agent(
+    self.coding_agent
+)
+
+        # -----------------------------
+        # Reasoning
+        # -----------------------------
+
+        self.reasoning = ReasoningEngine()
+
+        self.inference = InferenceEngine()
+
+        # -----------------------------
+        # Goal / Task Systems
+        # -----------------------------
+
+        self.goal_translator = GoalTranslator()
+
+        self.goal_tracker = GoalTracker()
+
+        self.goal_evaluator = GoalEvaluator()
+
+        self.task_manager = TaskManager(
+            database=os.environ.get("ULTRON_OPERATION_DB"),
+            operation_store=self.execution_audit_store,
+        )
+
+        self.task_translator = TaskTranslator()
+
+        self.task_tracker = TaskTracker()
+
+        self.task_evaluator = TaskEvaluator()
+
+        # -----------------------------
+        # Services
+        # -----------------------------
+
+        self.goal_service = GoalService(
+            goal_manager=self.goal_manager,
+            goal_translator=self.goal_translator,
+            task_manager=self.task_manager,
+            task_translator=self.task_translator,
+            blackboard=self.blackboard,
+            event_bus=self.event_bus,
+        )
+
+        self.task_service = TaskService(
+            task_manager=self.task_manager,
+            executor=self.executor,
+            operation_store=self.execution_audit_store,
+        )
+
+        self.reasoning_service = ReasoningService(
+            reasoning_engine=self.reasoning,
+        )
+
+        self.memory_service = MemoryService(
+            memory=self.memory,
+        )
+
+        self.learning_service = LearningService(
+            episodic_memory=self.memory.episodic,
+            semantic_memory=self.memory.semantic,
+        )
+        self.learning = self.learning_service
+
+        # -----------------------------
+        # Cognitive Engines
+        # -----------------------------
+
+        self.decision = DecisionEngine(
+            learning_provider=self.decision_learning,
+        )
+
+        self.strategy_memory = StrategyMemory()
+
+        self.planning = PlanningEngine(
+            strategy_memory=self.strategy_memory,
+        )
+
+        self.execution = ExecutionEngine(
+    skills=self.skills,
+    audit_store=self.execution_audit_store,
+)
+
+        self.reflection = ReflectionEngine(
+            event_bus=self.event_bus,
+        )
+
+        # -----------------------------
+        # Autonomous Agent Loop
+        # -----------------------------
+
+        self.autonomy_monitor = AutonomyMonitor()
+
+        self.autonomy_goal_store = GoalStore()
+
+        self.autonomy_priority = GoalPriorityEngine()
+
+        self.autonomy_policy = AutonomyPolicy()
+
+        self.autonomy_prime = PrimeAgent()
+
+        self.autonomous_planner = AutonomousPlanner(
+            prime_agent=self.autonomy_prime,
+        )
+
+        self.autonomy_loop = AutonomyLoop(
+    monitor=self.autonomy_monitor,
+    goal_store=self.autonomy_goal_store,
+    priority_engine=self.autonomy_priority,
+    planner=self.autonomous_planner,
+    policy=self.autonomy_policy,
+    execution=self.execution,
+    reflection=self.reflection,
+)
+
+        # -----------------------------
+        # Application Services
+        # -----------------------------
+
+        self.planning_service = PlanningService(
+            planning_engine=self.planning,
+        )
+
+        self.execution_service = ExecutionService(
+            execution_engine=self.execution,
+        )
+
+        self.reflection_service = ReflectionService(
+            reflection_engine=self.reflection,
+        )
+
+        # -----------------------------
+        # Cognitive Service
+        # -----------------------------
+
+        self.cognitive_service = CognitiveService(
+            reasoning=self.reasoning_service,
+            decision=self.decision,
+            planning=self.planning_service,
+            execution=self.execution_service,
+            reflection=self.reflection_service,
+            learning=self.learning_service,
+        )
+        self.runtime = CognitiveRuntime(
+            cognitive_service=self.cognitive_service,
+            perception_engine=self.perception,
+            understanding_engine=self.understanding,
+            context_engine=self.context,
+            smith_service=self.smith,
+            event_bus=self.event_bus,
+        )
+        self.conversation = ConversationManager(
+         llm=self.llm_provider,
+         memory=self.memory,
+          knowledge=self.knowledge,
+           executor=self.executor,
+           runtime=self.runtime,
+)
+
+        # -----------------------------
+# Financial Intelligence System
+# -----------------------------
+
+        # -----------------------------
+# Financial Intelligence System
+# -----------------------------
+
+        from ultron.financial.storage.experience_store import (
+    FinancialExperienceStore,
+)
+
+        from ultron.financial.memory.manager import (
+    FinancialMemoryManager,
+)
+
+        from ultron.financial.reasoning.memory_reasoner import (
+    MemoryAwareFinancialReasoning,
+)
+
+        from ultron.financial.decision.engine import (
+    FinancialDecisionEngine,
+)
+
+        from ultron.financial.agent.financial_agent import (
+    FinancialAgent,
+)
+
+        from ultron.skills.market_data.skill import (
+    Market_dataSkill,
+)
+
+        from ultron.skills.financial_analysis.skill import (
+    Financial_analysisSkill,
+)
+
+        from ultron.financial.market.analyzer import (
+    MarketRegimeAnalyzer,
+)
+
+        from ultron.skills.risk_management.skill import (
+    Risk_managementSkill,
+)
+
+        from ultron.skills.backtesting.skill import (
+    BacktestingSkill,
+)
+
+        from ultron.financial.strategies.selector import (
+    StrategySelector,
+)
+        from ultron.skills.financial.skill import FinancialSkill
+
+
+        self.financial_memory_store = FinancialExperienceStore()
+
+        self.financial_memory = FinancialMemoryManager(
+    self.financial_memory_store
+)
+
+        self.financial_reasoning = MemoryAwareFinancialReasoning(
+    self.financial_memory
+)
+
+        self.financial_market_data = Market_dataSkill()
+
+        self.financial_analysis = Financial_analysisSkill(
+    market=self.financial_market_data,
+)
+
+        self.financial_regime = MarketRegimeAnalyzer()
+
+        self.financial_risk = Risk_managementSkill()
+
+        self.financial_strategy_selector = StrategySelector()
+
+        self.financial_backtesting = BacktestingSkill()
+
+        self.financial_decision = FinancialDecisionEngine()
+
+        execution_backend = os.getenv(
+            "ULTRON_EXECUTION_BACKEND",
+            "",
+        ).strip().lower()
+        require_simulation_execution_backend(execution_backend)
+        market_provider = os.getenv(
+            "ULTRON_FINANCIAL_MARKET_PROVIDER", "yahoo"
+        ).strip().lower()
+        coinbase_client = None
+        if market_provider == "coinbase":
+            coinbase_client = CoinbaseAdvancedClient()
+
+        self.financial_paper_broker = PaperBroker(
+            initial_capital=100_000,
+        )
+
+        self.financial_broker = self.financial_paper_broker
+        self.financial_live_execution_journal = None
+        self.financial_trading_engine = PaperTradingEngine(
+            broker=self.financial_paper_broker,
+            max_position_percent=25.0,
+        )
+
+        # Market data selection does not enable provider-backed order execution.
+        if market_provider == "alpaca":
+            self.financial_trading_market_service = MarketDataService(
+                AlpacaMarketAdapter()
+            )
+        elif market_provider == "coinbase":
+            self.financial_trading_market_service = MarketDataService(
+                CoinbaseMarketAdapter(client=coinbase_client)
+            )
+        elif market_provider == "oanda":
+            self.financial_trading_market_service = MarketDataService(
+                OandaMarketAdapter()
+            )
+        elif market_provider == "yahoo":
+            # Yahoo's skill provider is not a MarketAdapter. Fail closed rather
+            # than accepting an unverified price without a source timestamp.
+            self.financial_trading_market_service = None
+        else:
+            raise RuntimeError(
+                "Invalid ULTRON_FINANCIAL_MARKET_PROVIDER. "
+                "Allowed values: yahoo, alpaca, coinbase, oanda."
+            )
+
+        self.financial_trading_controller = (
+            FinancialTradingController(
+                trading_engine=self.financial_trading_engine,
+                market_data=self.financial_trading_market_service,
+                live_execution_journal=self.financial_live_execution_journal,
+            )
+        )
+        self.financial_planner = FinancialPlanner()
+
+        self.financial_plan_executor = FinancialPlanExecutor(
+    handlers=build_financial_plan_handlers(
+        market_data=self.financial_market_data,
+        analysis=self.financial_analysis,
+        regime=self.financial_regime,
+        risk=self.financial_risk,
+        strategy_selector=self.financial_strategy_selector,
+        backtesting=self.financial_backtesting,
+        reasoning=self.financial_reasoning,
+        decision=self.financial_decision,
+        memory=self.financial_memory,
+    )
+)
+
+        self.financial_agent = FinancialAgent(
+    market_data=self.financial_market_data,
+    analysis=self.financial_analysis,
+    regime=self.financial_regime,
+    reasoning=self.financial_reasoning,
+    decision=self.financial_decision,
+    memory=self.financial_memory,
+    risk=self.financial_risk,
+    strategy_selector=self.financial_strategy_selector,
+    backtesting=self.financial_backtesting,
+        trading_controller=self.financial_trading_controller,
+)
+        self.financial_skill = FinancialSkill(
+    self.financial_agent,
+)
+
+        self.skills.register(
+    self.financial_skill,
+)
+
+
+        
+
+       
+        self.system_registry.register("memory", self.memory)
+
+        self.system_registry.register("knowledge", self.knowledge)
+
+        self.system_registry.register("learning", self.learning)
+
+        self.system_registry.register("reasoning", self.reasoning)
+
+        self.system_registry.register("improvement", self.improvement_service)
+
+        self.system_registry.register("skills", self.skills)
+
+        self.system_registry.register(
+          "agents",
+          self.agent_orchestrator,
+        )
+
+        self.system_registry.register(
+        "smith",
+         self.smith,
+)
+
+        self.system_registry.register("security", self.security)
+
+
+container = Container()

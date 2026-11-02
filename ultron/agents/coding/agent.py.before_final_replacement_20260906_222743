@@ -1,0 +1,491 @@
+from __future__ import annotations
+
+import logging
+from typing import Any, ClassVar
+
+from ultron.agents.base import BaseAgent
+from ultron.agents.models import AgentResult, AgentTask
+from ultron.agents.coding.intelligence import LanguageSelector
+from ultron.improvement.validator.quality_checker import QualityChecker
+
+
+logger = logging.getLogger(__name__)
+
+
+class CodingAgent(BaseAgent):
+    """
+    Production coding agent for ULTRON.
+
+    Responsibilities:
+
+    - Analyze coding requests.
+    - Select an appropriate programming language.
+    - Generate code through the configured LLM provider.
+    - Validate generated code.
+    - Automatically repair invalid generated code.
+    - Return structured metadata describing the decision and validation.
+    - Never execute generated code.
+    - Never modify project files directly.
+
+    File creation, patching, execution, deployment, and sandboxed mutation
+    remain separate responsibilities.
+    """
+
+    name = "coding"
+
+    capabilities: ClassVar[list[str]] = [
+        "code_generation",
+        "code_review",
+        "debugging",
+        "refactoring",
+        "architecture_design",
+        "algorithm_design",
+        "database_design",
+        "api_development",
+        "test_generation",
+        "performance_analysis",
+        "dependency_analysis",
+        "documentation",
+        "deployment_support",
+        "optimization",
+    ]
+
+    def __init__(
+        self,
+        improvement_service=None,
+        llm_provider=None,
+        language_selector: LanguageSelector | None = None,
+        quality_checker: QualityChecker | None = None,
+        max_repair_attempts: int = 2,
+    ):
+        self.improvement_service = improvement_service
+        self.llm_provider = llm_provider
+        self.language_selector = (
+            language_selector or LanguageSelector()
+        )
+        self.quality_checker = (
+            quality_checker or QualityChecker()
+        )
+        self.max_repair_attempts = max(
+            0,
+            int(max_repair_attempts),
+        )
+
+    def execute(
+        self,
+        task: AgentTask,
+    ) -> AgentResult:
+        """
+        Generate and validate code for an AgentTask.
+        """
+
+        if not task.goal or not task.goal.strip():
+            return AgentResult(
+                success=False,
+                agent=self.name,
+                output="Coding request cannot be empty.",
+                capabilities_used=["code_generation"],
+                metadata={
+                    "error": "empty_goal",
+                },
+            )
+
+        if self.llm_provider is None:
+            return AgentResult(
+                success=False,
+                agent=self.name,
+                output="Coding generation unavailable: no LLM provider configured.",
+                capabilities_used=["code_generation"],
+                metadata={
+                    "error": "llm_provider_unavailable",
+                },
+            )
+
+        try:
+            selection = self.language_selector.select(
+                task.goal,
+                project_root=task.context.get(
+                    "project_root"
+                ),
+                preferred_languages=task.context.get(
+                    "preferred_languages"
+                ),
+            )
+
+            if selection.selected is None:
+                return AgentResult(
+                    success=False,
+                    agent=self.name,
+                    output=selection.explanation,
+                    capabilities_used=["code_generation"],
+                    metadata={
+                        "error": "language_selection_failed",
+                        "language_selection": self._selection_metadata(
+                            selection
+                        ),
+                    },
+                )
+
+            selected_language = selection.selected.language
+
+            context = self._build_llm_context(
+                task,
+                selection,
+            )
+
+            prompt = self._build_generation_prompt(
+                task,
+                selection,
+            )
+
+            generated_code = self.llm_provider.generate(
+                prompt,
+                context=context,
+            )
+
+            generated_code = self._normalize_generated_code(
+                generated_code
+            )
+
+            validation = self.quality_checker.check_code(
+                generated_code,
+                language=selected_language,
+            )
+
+            repair_history: list[dict[str, Any]] = []
+
+            attempts = 0
+
+            while (
+                not validation["passed"]
+                and attempts < self.max_repair_attempts
+            ):
+                attempts += 1
+
+                repair_prompt = self._build_repair_prompt(
+                    task=task,
+                    selection=selection,
+                    code=generated_code,
+                    validation=validation,
+                    attempt=attempts,
+                )
+
+                repair_context = {
+                    **context,
+                    "repair_attempt": attempts,
+                    "validation": validation,
+                    "previous_code": generated_code,
+                }
+
+                generated_code = self.llm_provider.generate(
+                    repair_prompt,
+                    context=repair_context,
+                )
+
+                generated_code = self._normalize_generated_code(
+                    generated_code
+                )
+
+                validation = self.quality_checker.check_code(
+                    generated_code,
+                    language=selected_language,
+                )
+
+                repair_history.append(
+                    {
+                        "attempt": attempts,
+                        "passed": validation["passed"],
+                        "score": validation.get(
+                            "score",
+                            0,
+                        ),
+                        "issues": list(
+                            validation.get(
+                                "issues",
+                                [],
+                            )
+                        ),
+                    }
+                )
+
+            metadata = {
+                "language_selection": self._selection_metadata(
+                    selection
+                ),
+                "validation": validation,
+                "repair_attempts": attempts,
+                "repair_history": repair_history,
+            }
+
+            if not validation["passed"]:
+                return AgentResult(
+                    success=False,
+                    agent=self.name,
+                    output=(
+                        "Generated code failed validation "
+                        f"after {attempts} repair attempt(s)."
+                    ),
+                    capabilities_used=[
+                        "code_generation",
+                        "code_review",
+                        "debugging",
+                    ],
+                    metadata={
+                        **metadata,
+                        "error": (
+                            "generated_code_failed_validation"
+                        ),
+                    },
+                )
+
+            return AgentResult(
+                success=True,
+                agent=self.name,
+                output=generated_code,
+                capabilities_used=[
+                    "code_generation",
+                    "code_review",
+                ],
+                metadata=metadata,
+            )
+
+        except Exception as exc:
+            logger.exception(
+                "CodingAgent execution failed."
+            )
+
+            return AgentResult(
+                success=False,
+                agent=self.name,
+                output=f"Coding generation failed: {exc}",
+                capabilities_used=[
+                    "code_generation",
+                ],
+                metadata={
+                    "error": type(exc).__name__,
+                    "error_message": str(exc),
+                },
+            )
+
+    def _build_llm_context(
+        self,
+        task: AgentTask,
+        selection,
+    ) -> dict[str, Any]:
+        """
+        Build the structured context passed to the LLM.
+        """
+
+        return {
+            "goal": task.goal,
+            "selected_language": (
+                selection.selected.language
+                if selection.selected
+                else None
+            ),
+            "task_context": task.context,
+            "task_constraints": task.constraints,
+            "language_requirements": (
+                selection.requirements.model_dump()
+                if hasattr(
+                    selection.requirements,
+                    "model_dump",
+                )
+                else selection.requirements.__dict__
+            ),
+        }
+
+    def _build_generation_prompt(
+        self,
+        task: AgentTask,
+        selection,
+    ) -> str:
+        """
+        Build a deterministic engineering-oriented generation prompt.
+        """
+
+        selected = selection.selected
+
+        language = (
+            selected.language
+            if selected is not None
+            else "unspecified"
+        )
+
+        requirements = selection.requirements
+
+        return f"""
+You are ULTRON's coding engine.
+
+Generate production-quality software for the user's request.
+
+User request:
+{task.goal}
+
+Selected language: {language}
+
+Engineering requirements:
+- performance: {requirements.performance}
+- safety: {requirements.safety}
+- portability: {requirements.portability}
+- ecosystem: {requirements.ecosystem}
+- development speed: {requirements.development_speed}
+- concurrency: {requirements.concurrency}
+- systems: {requirements.systems}
+- web: {requirements.web}
+- mobile: {requirements.mobile}
+- embedded: {requirements.embedded}
+- AI/ML: {requirements.ai_ml}
+- data science: {requirements.data_science}
+- backend: {requirements.backend}
+- frontend: {requirements.frontend}
+- realtime: {requirements.realtime}
+
+Constraints:
+{requirements.constraints}
+
+Task context:
+{task.context}
+
+Requirements for the generated result:
+
+1. Produce complete, executable, production-quality code.
+2. Follow idiomatic conventions for the selected language.
+3. Use clear architecture and meaningful names.
+4. Handle realistic errors and edge cases.
+5. Avoid placeholder implementations.
+6. Do not leave TODO/pass/stub implementations unless explicitly requested.
+7. Include appropriate validation.
+8. Keep security in mind.
+9. Do not invent unavailable dependencies unnecessarily.
+10. Do not execute commands or modify files.
+11. Return the code itself, not an explanation.
+12. Do not wrap the answer in Markdown fences.
+
+Selected language: {language}
+""".strip()
+
+    def _build_repair_prompt(
+        self,
+        task: AgentTask,
+        selection,
+        code: str,
+        validation: dict[str, Any],
+        attempt: int,
+    ) -> str:
+        """
+        Build a targeted repair prompt from validator feedback.
+        """
+
+        language = selection.selected.language
+
+        issues = validation.get(
+            "issues",
+            [],
+        )
+
+        metrics = validation.get(
+            "metrics",
+            {},
+        )
+
+        return f"""
+You are ULTRON's code repair engine.
+
+The previous generated program failed quality validation.
+
+Original request:
+{task.goal}
+
+Selected language:
+{language}
+
+Repair attempt:
+{attempt}
+
+Validation issues:
+{issues}
+
+Validation metrics:
+{metrics}
+
+Previous generated code:
+{code}
+
+Repair requirements:
+
+1. Fix every reported validation issue.
+2. Preserve the original requested behavior.
+3. Produce complete production-quality code.
+4. Do not replace real functionality with placeholders.
+5. Do not introduce unnecessary dependencies.
+6. Keep the implementation idiomatic for {language}.
+7. Handle realistic edge cases and errors.
+8. Return ONLY the corrected code.
+9. Do not use Markdown fences.
+10. Do not execute commands or modify files.
+""".strip()
+
+    @staticmethod
+    def _normalize_generated_code(
+        code: Any,
+    ) -> str:
+        """
+        Normalize common LLM output forms before validation.
+        """
+
+        if code is None:
+            return ""
+
+        text = str(code).strip()
+
+        if text.startswith("```"):
+            lines = text.splitlines()
+
+            if lines and lines[0].strip().startswith("```"):
+                lines = lines[1:]
+
+            if lines and lines[-1].strip() == "```":
+                lines = lines[:-1]
+
+            text = "\n".join(lines).strip()
+
+        return text
+
+    @staticmethod
+    def _selection_metadata(
+        selection,
+    ) -> dict[str, Any]:
+        """
+        Convert LanguageSelection into serializable metadata.
+        """
+
+        selected = selection.selected
+
+        return {
+            "selected": (
+                {
+                    "language": selected.language,
+                    "score": selected.score,
+                    "confidence": selected.confidence,
+                    "available": selected.available,
+                    "reasons": list(selected.reasons),
+                    "penalties": list(selected.penalties),
+                }
+                if selected is not None
+                else None
+            ),
+            "alternatives": [
+                {
+                    "language": candidate.language,
+                    "score": candidate.score,
+                    "confidence": candidate.confidence,
+                    "available": candidate.available,
+                    "reasons": list(candidate.reasons),
+                    "penalties": list(candidate.penalties),
+                }
+                for candidate in selection.alternatives
+            ],
+            "confidence": selection.confidence,
+            "explanation": selection.explanation,
+        }

@@ -1,0 +1,537 @@
+cd ~/Projects/ULTRON_phase1_normalized
+
+cat > ultron/agents/coding/agent.py <<'PY'
+import logging
+from typing import Any, ClassVar
+
+from ultron.agents.base import BaseAgent
+from ultron.agents.models import (
+    AgentResult,
+    AgentTask,
+)
+from ultron.agents.coding.intelligence import (
+    LanguageSelection,
+    LanguageSelector,
+)
+from ultron.improvement.validator.quality_checker import (
+    QualityChecker,
+)
+
+
+logger = logging.getLogger(__name__)
+
+
+class CodingAgent(BaseAgent):
+    """
+    Production coding agent.
+
+    Pipeline:
+
+        AgentTask
+            ↓
+        requirement analysis
+            ↓
+        language selection
+            ↓
+        LLM generation
+            ↓
+        quality validation
+            ↓
+        repair loop when required
+            ↓
+        final validated result
+
+    The agent never executes generated code and never modifies project
+    files during generation or repair.
+    """
+
+    name = "coding"
+
+    capabilities: ClassVar[list[str]] = [
+        "code_generation",
+        "code_review",
+        "debugging",
+        "refactoring",
+        "architecture_design",
+        "algorithm_design",
+        "database_design",
+        "api_development",
+        "test_generation",
+        "performance_analysis",
+        "dependency_analysis",
+        "documentation",
+        "deployment_support",
+        "optimization",
+    ]
+
+    def __init__(
+        self,
+        improvement_service=None,
+        llm_provider=None,
+        language_selector: LanguageSelector | None = None,
+        quality_checker: QualityChecker | None = None,
+        max_repair_attempts: int = 2,
+    ):
+        if max_repair_attempts < 0:
+            raise ValueError(
+                "max_repair_attempts cannot be negative."
+            )
+
+        self.improvement_service = improvement_service
+        self.llm_provider = llm_provider
+
+        self.language_selector = (
+            language_selector
+            if language_selector is not None
+            else LanguageSelector()
+        )
+
+        self.quality_checker = (
+            quality_checker
+            if quality_checker is not None
+            else QualityChecker()
+        )
+
+        self.max_repair_attempts = max_repair_attempts
+
+    def execute(
+        self,
+        task: AgentTask,
+    ) -> AgentResult:
+        """
+        Generate code for an AgentTask and validate the result.
+
+        Invalid generated code is automatically sent through a bounded
+        repair loop. Generated code is returned as data only.
+        """
+
+        if not task.goal or not task.goal.strip():
+            return AgentResult(
+                success=False,
+                agent=self.name,
+                output="Coding request cannot be empty.",
+                capabilities_used=[],
+                metadata={
+                    "error": "empty_goal",
+                },
+            )
+
+        if self.llm_provider is None:
+            return AgentResult(
+                success=False,
+                agent=self.name,
+                output="Coding LLM provider is not configured.",
+                capabilities_used=[
+                    "code_generation",
+                ],
+                metadata={
+                    "error": "llm_provider_unavailable",
+                },
+            )
+
+        try:
+            selection = self.language_selector.select(
+                task.goal,
+                project_root=task.context.get(
+                    "project_root"
+                ),
+                preferred_languages=task.context.get(
+                    "preferred_languages"
+                ),
+            )
+
+            if selection.selected is None:
+                return AgentResult(
+                    success=False,
+                    agent=self.name,
+                    output=selection.explanation,
+                    capabilities_used=[
+                        "code_generation",
+                    ],
+                    metadata={
+                        "error": "language_selection_failed",
+                        "language_selection": self._selection_metadata(
+                            selection
+                        ),
+                    },
+                )
+
+            context = self._build_llm_context(
+                task,
+                selection,
+            )
+
+            prompt = self._build_generation_prompt(
+                task,
+                selection,
+            )
+
+            generated = self.llm_provider.generate(
+                prompt,
+                context,
+            )
+
+            if generated is None:
+                generated = ""
+
+            generated = str(generated)
+
+            validation_history = []
+
+            validation = self._validate_generated_code(
+                generated,
+                selection,
+            )
+
+            validation_history.append(
+                {
+                    "attempt": 0,
+                    "passed": validation["passed"],
+                    "score": validation.get("score"),
+                    "issues": list(
+                        validation.get("issues", [])
+                    ),
+                    "metrics": validation.get(
+                        "metrics",
+                        {},
+                    ),
+                }
+            )
+
+            repair_attempts = 0
+
+            while (
+                not validation["passed"]
+                and repair_attempts
+                < self.max_repair_attempts
+            ):
+                repair_attempts += 1
+
+                repair_prompt = self._build_repair_prompt(
+                    task=task,
+                    selection=selection,
+                    generated_code=generated,
+                    validation=validation,
+                    repair_attempt=repair_attempts,
+                )
+
+                repair_context = {
+                    **context,
+                    "repair": {
+                        "attempt": repair_attempts,
+                        "max_attempts": self.max_repair_attempts,
+                        "validation": validation,
+                    },
+                }
+
+                generated = self.llm_provider.generate(
+                    repair_prompt,
+                    repair_context,
+                )
+
+                if generated is None:
+                    generated = ""
+
+                generated = str(generated)
+
+                validation = self._validate_generated_code(
+                    generated,
+                    selection,
+                )
+
+                validation_history.append(
+                    {
+                        "attempt": repair_attempts,
+                        "passed": validation["passed"],
+                        "score": validation.get("score"),
+                        "issues": list(
+                            validation.get("issues", [])
+                        ),
+                        "metrics": validation.get(
+                            "metrics",
+                            {},
+                        ),
+                    }
+                )
+
+            if not validation["passed"]:
+                return AgentResult(
+                    success=False,
+                    agent=self.name,
+                    output=(
+                        "Generated code failed quality validation "
+                        "after "
+                        f"{repair_attempts} repair attempt(s)."
+                    ),
+                    capabilities_used=[
+                        "code_generation",
+                        "code_review",
+                    ],
+                    metadata={
+                        "error": (
+                            "generated_code_failed_validation"
+                        ),
+                        "language_selection": (
+                            self._selection_metadata(
+                                selection
+                            )
+                        ),
+                        "validation": validation,
+                        "validation_history": validation_history,
+                        "repair_attempts": repair_attempts,
+                        "max_repair_attempts": (
+                            self.max_repair_attempts
+                        ),
+                    },
+                )
+
+            return AgentResult(
+                success=True,
+                agent=self.name,
+                output=generated,
+                capabilities_used=[
+                    "code_generation",
+                    "code_review",
+                ],
+                metadata={
+                    "language_selection": (
+                        self._selection_metadata(
+                            selection
+                        )
+                    ),
+                    "generation": {
+                        "provider": type(
+                            self.llm_provider
+                        ).__name__,
+                        "repair_attempts": repair_attempts,
+                    },
+                    "validation": validation,
+                    "validation_history": validation_history,
+                },
+            )
+
+        except Exception as exc:
+            logger.exception(
+                "CodingAgent execution failed."
+            )
+
+            return AgentResult(
+                success=False,
+                agent=self.name,
+                output=(
+                    "Coding generation failed: "
+                    f"{exc}"
+                ),
+                capabilities_used=[
+                    "code_generation",
+                ],
+                metadata={
+                    "error": type(exc).__name__,
+                    "error_message": str(exc),
+                },
+            )
+
+    def _validate_generated_code(
+        self,
+        generated: str,
+        selection: LanguageSelection,
+    ) -> dict:
+        """
+        Validate generated output using the quality subsystem.
+
+        The quality checker owns language-specific validation. This agent
+        only coordinates validation and repair.
+        """
+
+        selected = selection.selected
+
+        if selected is None:
+            return {
+                "passed": False,
+                "score": 0,
+                "issues": [
+                    "No language was selected."
+                ],
+                "metrics": {},
+            }
+
+        return self.quality_checker.check_code(
+            generated,
+            language=selected.language,
+        )
+
+    def _build_generation_prompt(
+        self,
+        task: AgentTask,
+        selection: LanguageSelection,
+    ) -> str:
+        """
+        Build a deterministic engineering prompt for initial generation.
+        """
+
+        selected = selection.selected
+
+        if selected is None:
+            raise ValueError(
+                "Cannot build a generation prompt without "
+                "a selected language."
+            )
+
+        requirements = selection.requirements
+
+        requirement_lines = []
+
+        for name in (
+            "performance",
+            "safety",
+            "portability",
+            "ecosystem",
+            "development_speed",
+            "concurrency",
+            "systems",
+            "web",
+            "mobile",
+            "embedded",
+            "ai_ml",
+            "data_science",
+            "backend",
+            "frontend",
+            "realtime",
+        ):
+            value = getattr(
+                requirements,
+                name,
+                0.0,
+            )
+
+            if value:
+                requirement_lines.append(
+                    f"- {name}: {value:.2f}"
+                )
+
+        if not requirement_lines:
+            requirement_lines.append(
+                "- No specialized engineering requirements detected."
+            )
+
+        constraints = getattr(
+            requirements,
+            "constraints",
+            {},
+        ) or {}
+
+        if constraints:
+            constraint_lines = [
+                f"- {key}: {value}"
+                for key, value in constraints.items()
+            ]
+        else:
+            constraint_lines = [
+                "- No additional constraints."
+            ]
+
+        project_context = task.context.get(
+            "project_context",
+            {},
+        )
+
+        return f"""
+You are ULTRON's coding and software-engineering subsystem.
+
+User request:
+{task.goal}
+
+Selected language: {selected.language}
+
+Language selection rationale:
+{self._format_reasons(selected)}
+
+Engineering requirements:
+{chr(10).join(requirement_lines)}
+
+Constraints:
+{chr(10).join(constraint_lines)}
+
+Project context:
+{project_context}
+
+Engineering requirements for the generated solution:
+
+1. Produce production-quality code.
+2. Prefer clear, maintainable architecture.
+3. Use appropriate error handling.
+4. Avoid unnecessary dependencies.
+5. Follow idiomatic conventions for the selected language.
+6. Consider security and edge cases.
+7. Include useful documentation where appropriate.
+8. Do not invent unavailable APIs or dependencies.
+9. Do not execute commands.
+10. Do not modify files.
+11. Return the implementation directly and avoid irrelevant discussion.
+
+Do not execute commands or modify files.
+""".strip()
+
+    def _build_repair_prompt(
+        self,
+        task: AgentTask,
+        selection: LanguageSelection,
+        generated_code: str,
+        validation: dict,
+        repair_attempt: int,
+    ) -> str:
+        """
+        Build a targeted repair prompt from quality-validation feedback.
+
+        The previous output and validator findings are supplied explicitly so
+        the model can correct the implementation rather than regenerate
+        blindly.
+        """
+
+        selected = selection.selected
+
+        if selected is None:
+            raise ValueError(
+                "Cannot build a repair prompt without "
+                "a selected language."
+            )
+
+        issues = validation.get(
+            "issues",
+            [],
+        )
+
+        if issues:
+            issue_text = "\n".join(
+                f"- {issue}"
+                for issue in issues
+            )
+        else:
+            issue_text = "- Quality validation failed without a detailed issue."
+
+        metrics = validation.get(
+            "metrics",
+            {},
+        )
+
+        return f"""
+You are repairing code generated by ULTRON.
+
+Original user request:
+{task.goal}
+
+Selected language:
+{selected.language}
+
+Repair attempt:
+{repair_attempt} of {self.max_repair_attempts}
+
+Quality validation failures:
+{issue_text}
+
+Quality metrics:
+{metrics}
+
+Previous generated output:
+```{selected.language.lower()}
+{generated_code}

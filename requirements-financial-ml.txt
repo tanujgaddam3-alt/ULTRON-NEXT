@@ -1,0 +1,6 @@
+# Optional CPU-only dependencies for historical research and model evaluation.
+# Install after the project's base requirements.txt.
+numpy>=1.26
+pandas>=2.0
+scikit-learn>=1.4
+joblib>=1.3

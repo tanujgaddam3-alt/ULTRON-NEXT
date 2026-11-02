@@ -1,0 +1,363 @@
+{
+  "schema_version": 1,
+  "audit": "ULTRON comprehensive limitation audit",
+  "evidence_date": "2026-10-27",
+  "decision": "NO-GO",
+  "read_only": true,
+  "source_code_changed": false,
+  "live_services_touched": false,
+  "live_databases_touched": false,
+  "credentials_accessed": false,
+  "tests_run_for_this_audit": false,
+  "status_legend": {
+    "confirmed": "Supported by inspected source, manifests, documentation, or upstream advisory data.",
+    "test_evidence": "Historical isolated test evidence; not production proof.",
+    "unverified": "Required runtime, browser, operator, or complete-scope evidence was not collected.",
+    "inferred_risk": "Potential impact of a confirmed condition, not an observed incident."
+  },
+  "limitations": [
+    {
+      "id": "LIM-001",
+      "title": "CRE workflow is not end-to-end wired",
+      "domain": "CRE",
+      "severity": "high",
+      "confidence": "high",
+      "status": "confirmed",
+      "evidence": [
+        "ultron/application/content/status.py:63-108 reports processing not configured, rendering preview-only, publishing mock-only, and analytics unavailable.",
+        "ultron/application/runtime/interface_gateway.py:828-836,4842-4854 exposes status and selected preview/review paths; CRE runtime setup is conditional."
+      ],
+      "impact": "Local service classes must not be represented as an operator-usable end-to-end content pipeline.",
+      "recommended_action": "Keep unavailable stages explicit; define authorized owner-scoped workflow and lifecycle before exposing intake-to-render operations.",
+      "acceptance": "An isolated integration test demonstrates registered-byte hash, current-rights decision, transcript, candidate, render, review, cancellation/recovery, owner scope, and audit evidence at each boundary.",
+      "operator_dependency": "Operator-approved CRE capability scope and legal rights policy."
+    },
+    {
+      "id": "LIM-002",
+      "title": "CRE source reference is not discovery or legal clearance",
+      "domain": "CRE",
+      "severity": "high",
+      "confidence": "high",
+      "status": "confirmed",
+      "evidence": [
+        "ultron/application/content/service.py:185-370 hashes supplied bytes and records references; no source fetch/discovery path was identified.",
+        "ultron/application/content/service.py:371-682,1003-1162,1728-2040 implements rights/grant/evidence lifecycle checks but cannot independently establish ownership."
+      ],
+      "impact": "An unverified URL or hash cannot authorize media processing or establish legal rights.",
+      "recommended_action": "Require traceable acquisition and current, use-specific rights evidence before processing.",
+      "acceptance": "Tests prove unverified references cannot authorize processing and that expiry/revocation blocks later actions.",
+      "operator_dependency": "Rights policy and traceable source-acquisition procedure."
+    },
+    {
+      "id": "LIM-003",
+      "title": "Production publishing is unavailable",
+      "domain": "CRE",
+      "severity": "high",
+      "confidence": "high",
+      "status": "confirmed",
+      "evidence": [
+        "ultron/application/content/publishing.py:54-78 is a mock adapter boundary.",
+        "docs/CONTENT_PUBLISHING_DESIGN.md:3-77,741-769 documents the absence of production transport, OAuth/session storage, and remote recovery."
+      ],
+      "impact": "A mock acknowledgment is not external publication; no live platform state or revenue may be inferred.",
+      "recommended_action": "Keep publishing disabled until protected credential storage, identity, rights/approval/kill-switch checks, durable state, and recovery are independently reviewed.",
+      "acceptance": "Fake-transport tests prove fail-closed behavior and resumable recovery; any later live sandbox test requires separate explicit authorization.",
+      "operator_dependency": "Platform credentials, legal rights approval, and explicit publication authorization."
+    },
+    {
+      "id": "LIM-004",
+      "title": "CRE analytics and revenue evidence are absent",
+      "domain": "CRE",
+      "severity": "medium",
+      "confidence": "high",
+      "status": "confirmed",
+      "evidence": [
+        "ultron/application/content/status.py:100-107 reports analytics.available=false.",
+        "docs/CONTENT_PUBLISHING_DESIGN.md:1098-1100 does not establish audience, monetization, or revenue evidence."
+      ],
+      "impact": "Dashboard job/status counts are not platform analytics, monetization eligibility, or revenue.",
+      "recommended_action": "Continue to show unavailable until authorized, source-attributed metrics with periods and freshness exist.",
+      "acceptance": "Contract tests reject missing, stale, unsupported, or unauthenticated metrics and prevent revenue claims from upload/rights state."
+    },
+    {
+      "id": "LIM-005",
+      "title": "Authenticated browser workflow and owner isolation are not verified",
+      "domain": "Authentication and dashboard",
+      "severity": "high",
+      "confidence": "high",
+      "status": "unverified",
+      "evidence": [
+        "Source path exists through ultron/application/runtime/local_auth_helper.py, ultron/application/runtime/interface_gateway.py, interface/services/providers/websocketProvider.js, and interface/operator-console.js.",
+        "Prior operator did not complete the normal private dashboard unlock; no authenticated browser session or authorized second principal was used."
+      ],
+      "impact": "Automated contracts do not prove current browser-to-live-service data flow, stale-state handling, rendered evidence, or cross-owner isolation.",
+      "recommended_action": "Perform browser acceptance only through normal private unlock and authorized test principals; do not request or log credentials.",
+      "acceptance": "Verify session expiry/revocation, helper reconnect, fresh CRE/System Intelligence status, stale/error state, all scene images decode, and owner isolation with authorized principals.",
+      "operator_dependency": "Operator privately unlocks dashboard and supplies an authorized second principal if owner isolation is to be claimed."
+    },
+    {
+      "id": "LIM-006",
+      "title": "Live manager ownership and loaded source identity remain ambiguous",
+      "domain": "Runtime ownership",
+      "severity": "critical",
+      "confidence": "high",
+      "status": "unverified",
+      "evidence": [
+        "Prior read-only runtime evidence recorded manager PID 6943 parenting four services while expected lease and control socket were absent; cause was not established.",
+        "scripts/ultron_service_manager.py validates process identity and does not provide an evidenced arbitrary adoption/handoff protocol.",
+        "Current manager/service state and source revision loaded by the process were not re-probed for this audit."
+      ],
+      "impact": "A PID, port, or missing lease cannot prove ownership transfer or authorize starting a competing manager, signaling, restart, or deployment.",
+      "recommended_action": "Keep live services untouched; have the operator authorize a read-only ownership-resolution and maintenance plan using process-start identity, parentage, executable/command identity, and manager records.",
+      "acceptance": "Independent evidence establishes authoritative owner and safe recovery without adoption or signal before a separately approved maintenance window.",
+      "operator_dependency": "Explicit operator authorization for any future live maintenance; this audit grants none."
+    },
+    {
+      "id": "LIM-007",
+      "title": "No complete deployable release or known-good rollback is established",
+      "domain": "Release and recovery",
+      "severity": "critical",
+      "confidence": "high",
+      "status": "confirmed",
+      "evidence": [
+        "Workspace has no Git metadata, so a source commit/revision and mission ownership cannot be established.",
+        "docs/ULTRON_RELEASE_MANIFEST.json is explicitly preliminary/scoped and not a complete approved release allowlist.",
+        "Prior pre-change archive is evidence preservation only; no verified known-good rollback bundle is established."
+      ],
+      "impact": "There is no defensible way to associate inspected/tested source with a deployable bundle or rollback target.",
+      "recommended_action": "Obtain an owner-approved complete source/runtime allowlist; exclude secrets, DB/WAL/SHM, caches, virtual environments, and unrelated generated files; create and verify a reproducible bundle and restoration.",
+      "acceptance": "Bundle member allowlist, SHA-256 manifest, dependency lock, archive integrity, isolated restoration, and post-restore manifest verification all pass.",
+      "operator_dependency": "Release owner identifies intended release scope and approves required runtime assets."
+    },
+    {
+      "id": "LIM-008",
+      "title": "Production database backup and recovery are not verified",
+      "domain": "Persistence and recovery",
+      "severity": "high",
+      "confidence": "high",
+      "status": "unverified",
+      "evidence": [
+        "scripts/ultron_sqlite_backup.py uses SQLite online backup and has isolated rehearsal evidence from prior missions.",
+        "No live CRE, operations, or conversation database was opened, copied, backed up, checkpointed, or restored in this audit."
+      ],
+      "impact": "An isolated backup rehearsal does not prove a current protected production backup or a usable production restore point.",
+      "recommended_action": "Before any authorized deployment, perform an approved online backup to an owner-only destination; preserve source DB/WAL/SHM and record integrity/schema/size/hash/timestamps without secrets.",
+      "acceptance": "Restore a copy to a separate destination, verify integrity/schema/version and checksum, and record backup outcome.",
+      "operator_dependency": "Explicit authorization, protected storage destination, expected schema/version, and maintenance owner."
+    },
+    {
+      "id": "LIM-009",
+      "title": "OMEGA adapter destination is configurable while documentation claims loopback-only",
+      "domain": "Integration boundary",
+      "severity": "high",
+      "confidence": "high",
+      "status": "confirmed",
+      "evidence": [
+        "ultron/application/runtime/interface_gateway.py:65-69,431-442 reads OMEGA_INTEGRATION_URL and attaches OMEGA_INTEGRATION_TOKEN to adapter requests.",
+        "docs/OPERATOR_CONSOLE.md:24 describes loopback-only polling, but the inspected adapter does not enforce loopback destination."
+      ],
+      "impact": "A misconfigured URL could send an integration credential to an unintended destination.",
+      "recommended_action": "Validate allowed scheme and destination before constructing any token-bearing request; reconcile the operator documentation. Do not inspect or modify OMEGA.",
+      "acceptance": "Tests reject non-allowlisted hosts/schemes before transport and prove no credential header is sent on rejection.",
+      "operator_dependency": "Approved destination allowlist and token-handling policy."
+    },
+    {
+      "id": "LIM-010",
+      "title": "Voice synthesis route has broad CORS and no inspected handler authentication",
+      "domain": "Voice",
+      "severity": "medium",
+      "confidence": "high",
+      "status": "confirmed",
+      "evidence": [
+        "ultron/voice/server.py:59-89 sets Access-Control-Allow-Origin: *.",
+        "ultron/voice/server.py:248-305 binds loopback and the inspected speak route has no authentication; manager config selects the Edge engine."
+      ],
+      "impact": "Local/cross-origin invocation and unbounded resource use require explicit threat, rate, and cost review; no exploitation was observed.",
+      "recommended_action": "Review allowed origins, request limits, concurrency/rate controls, and local-call assumptions without weakening loopback binding.",
+      "acceptance": "Tests reject disallowed origins and oversized/over-rate requests while preserving loopback-only listener behavior.",
+      "operator_dependency": "Voice engine/model and local UI origin requirements."
+    },
+    {
+      "id": "LIM-011",
+      "title": "Trading source safeguards do not establish production account/order state",
+      "domain": "Trading",
+      "severity": "high",
+      "confidence": "high",
+      "status": "unverified",
+      "evidence": [
+        "ultron/financial/bootstrap.py constructs PaperBroker/PaperTradingEngine; container paths require simulation mode and provider-backed order methods fail closed per existing documentation/tests.",
+        "The separate Streamlit dashboard can read paper-account snapshots; no order or live account was accessed."
+      ],
+      "impact": "Paper-mode construction and UI telemetry are not proof of a production account's state or every reachable order boundary.",
+      "recommended_action": "Keep all live paths blocked; verify isolated simulation and broker-boundary tests for every reachable entrypoint before any separately authorized change.",
+      "acceptance": "Tests prove default paths use simulation and reject live submit/cancel; no live order is needed for this acceptance.",
+      "operator_dependency": "Keep provider/account configuration separate from execution-mode approval."
+    },
+    {
+      "id": "LIM-012",
+      "title": "Dependency licensing, advisory applicability, and version lock are unresolved",
+      "domain": "Dependencies and supply chain",
+      "severity": "high",
+      "confidence": "high",
+      "status": "partially_verified",
+      "evidence": [
+        "requirements.txt directly and unpinnedly declares PyMuPDF; current selected environment reports PyMuPDF 1.28.2 and source uses it in three PDF paths.",
+        "Official PyMuPDF documentation offers AGPL and commercial licensing; organizational approval is unknown.",
+        "Selected environment reports pypdf 6.20.0; OSV-backed scan reports three high advisories, listed fixed version 6.21.2.",
+        "Nested XTTS reference lock pins transformers 4.57.6. OSV GHSA-29pf-2h5f-8g72 says versions before 5.3.0 are affected; GHSA-fgcw-684q-jj6r metadata conflicts between its 5.2.0 description and broader affected range. Reachable model-loading paths in staging are unverified."
+      ],
+      "impact": "Legal approval and actual production SBOM/advisory status cannot be closed; scanner records are not an approved deployed-package inventory.",
+      "recommended_action": "Resolve PyMuPDF terms with counsel, produce a supported-runtime SBOM/lock, reconcile advisories and inspect nested model-loader callers before clearing Transformers; assess pypdf mitigation in a separate tested dependency change.",
+      "acceptance": "Approved license disposition, exact artifact versions, advisory-range reconciliation, loader reachability review, and relevant compatibility/security tests are recorded.",
+      "operator_dependency": "Legal/compliance decision and release owner-approved runtime scope."
+    },
+    {
+      "id": "LIM-013",
+      "title": "Registered agents are not proven to participate in request routing",
+      "domain": "Agents and models",
+      "severity": "medium",
+      "confidence": "high",
+      "status": "partially_verified",
+      "evidence": [
+        "ultron/infrastructure/container.py registers agents and one ProviderManager/OllamaProvider.",
+        "docs/ULTRON_AGENT_CAPABILITY_AUDIT.md reports chat does not call AgentOrchestrator.dispatch and workflow execution has no runtime caller."
+      ],
+      "impact": "Registry presence is not operational orchestration; selected model/provider health and fallback are not exposed.",
+      "recommended_action": "Keep unsupported dispatch blocked; add provider readiness/failure telemetry and only integrate agent routes under the trusted authorization contract.",
+      "acceptance": "Request-path tests demonstrate selected provider/agent, outage behavior, and no unauthorized dispatch.",
+      "operator_dependency": "Local Ollama/model availability and model-version maintenance."
+    },
+    {
+      "id": "LIM-014",
+      "title": "Conversation and memory lifecycle lacks consistent privacy controls",
+      "domain": "Data persistence and privacy",
+      "severity": "high",
+      "confidence": "high",
+      "status": "confirmed",
+      "evidence": [
+        "ultron/conversation/history/store.py persists message content without explicit permission hardening in the inspected store.",
+        "Conversation history has no documented export, deletion, or retention API; MemoryManager, semantic SQLite storage, and ExperienceStore use separate lifecycle semantics.",
+        "ExperienceStore.load() can return an empty list on read/JSON errors."
+      ],
+      "impact": "Retention, deletion, derived-store invalidation, file privacy, and recovery semantics are inconsistent; empty-on-error can mask corrupted experience data.",
+      "recommended_action": "Define storage permissions, retention, export/deletion, provenance/correction, and explicit corruption reporting across stores.",
+      "acceptance": "Permission tests under permissive umask, deletion/retention tests, and corruption/recovery tests cover isolated stores.",
+      "operator_dependency": "Data-retention policy and backup owner."
+    },
+    {
+      "id": "LIM-015",
+      "title": "System Intelligence collection has a persistence side effect",
+      "domain": "Operations and observability",
+      "severity": "medium",
+      "confidence": "high",
+      "status": "confirmed",
+      "evidence": [
+        "ultron/application/runtime/system_intelligence.py:280-390 collects host/process/service evidence and persists bounded diagnostics.",
+        "ultron/application/runtime/system_intelligence.py:498-535 requests a manager-owned helper restart over the local control socket."
+      ],
+      "impact": "Collection must not be described as strictly read-only; retention and diagnostic-store permissions matter. Restart remains constrained to the manager-owned control path.",
+      "recommended_action": "Document persisted diagnostic fields/retention and assert no signal outside validated manager ownership.",
+      "acceptance": "Tests verify diagnostic permissions/retention and that a rejected/stale process identity cannot cause a service signal."
+    },
+    {
+      "id": "LIM-016",
+      "title": "Operational documentation conflicts with current source",
+      "domain": "Documentation and operations",
+      "severity": "medium",
+      "confidence": "high",
+      "status": "confirmed",
+      "evidence": [
+        "README.txt:3-8 still instructs applying a patch script.",
+        "docs/OPERATOR_CONSOLE.md:24 claims loopback-only OMEGA polling while source uses a configurable destination.",
+        "docs/ULTRON_IMPLEMENTATION_REPORT.md contains historical test totals which must not be presented as current production verification."
+      ],
+      "impact": "Operators may follow obsolete instructions or infer stronger runtime guarantees than source supports.",
+      "recommended_action": "Reconcile source-facing setup/endpoint guidance and mark all dated test/runtime observations as historical or unverified.",
+      "acceptance": "Documentation contract checks agree with source; setup and recovery instructions are reviewed by the responsible operator."
+    },
+    {
+      "id": "LIM-017",
+      "title": "Static diagnostics do not provide full-project type validation",
+      "domain": "Build and QA",
+      "severity": "medium",
+      "confidence": "high",
+      "status": "confirmed",
+      "evidence": [
+        "Pylance workspace settings report typeCheckingMode=off and diagnosticMode=openFilesOnly.",
+        "Import scan reports unresolved ultron_service_manager, imageio_ffmpeg, TTS, hydra, omegaconf, f5_tts, and librosa; runtime/optional staging applicability was not resolved."
+      ],
+      "impact": "No full-project Pylance/type-check or complete runtime import audit can be claimed from the current editor configuration.",
+      "recommended_action": "For a future release, run the repository's supported full static/import checks in the approved environment and classify optional/reference-only imports separately.",
+      "acceptance": "A reproducible static/import validation is tied to the exact release dependency lock and has no unexplained runtime import failures."
+    },
+    {
+      "id": "LIM-018",
+      "title": "Centrality, complexity, and import-cycle signals need targeted review",
+      "domain": "Maintainability",
+      "severity": "medium",
+      "confidence": "medium",
+      "status": "inferred_risk",
+      "evidence": [
+        "Cached project analysis reports two import cycles and high-complexity CRE, contract, operation-recovery, and System Intelligence functions.",
+        "Container import fan-out is high; no specific runtime defect was established from these metrics."
+      ],
+      "impact": "Changes to central contracts and high-complexity lifecycle code have elevated regression risk.",
+      "recommended_action": "Prioritize boundaries with regression tests and consider narrowly scoped decomposition only when a demonstrated defect or maintainability need exists.",
+      "acceptance": "Review cycles and complexity findings against actual supported import/runtime paths; no broad refactor is justified by metrics alone."
+    },
+    {
+      "id": "LIM-019",
+      "title": "Backup and reference files have uncertain dynamic or recovery use",
+      "domain": "Cleanup and release scope",
+      "severity": "low",
+      "confidence": "high",
+      "status": "unverified",
+      "evidence": [
+        "docs/ULTRON_CLEANUP_RECORD.json records no deleted files and retains .backups/, .ultron_patch_backups/, ultron/voice/reference_staging/, and backup-named source copies.",
+        "No Git history or exhaustive external/plugin/import-loader proof is available."
+      ],
+      "impact": "Apparent redundancy cannot safely be treated as dead code; including such material in a release could also add unrelated or sensitive artifacts.",
+      "recommended_action": "Retain in the workspace; exclude from a release only through an approved allowlist. Delete only after proving callers, dynamic loading, operator recovery, and external use are absent.",
+      "acceptance": "Every future removal has per-file purpose/reference/configuration/test/migration evidence and a recorded reason."
+    }
+  ],
+  "test_evidence": {
+    "current_audit_tests": {
+      "run": false,
+      "reason": "The audit was static and read-only; delegated auditors did not run tests."
+    },
+    "historical_preceding_mission_results": [
+      {
+        "suite": "Runtime/service manager",
+        "result": "33 passed; 4 subtests reported passed",
+        "source": "preceding Mission 4 summary",
+        "production_evidence": false
+      },
+      {
+        "suite": "Maintenance, release-bundle, and SQLite-backup tests",
+        "result": "19 passed",
+        "source": "preceding Mission 4 summary",
+        "production_evidence": false
+      },
+      {
+        "suite": "Gateway, CRE/System Intelligence status, auth-helper/authentication",
+        "result": "32 passed",
+        "source": "preceding Mission 4 summary",
+        "production_evidence": false
+      },
+      {
+        "suite": "Frontend",
+        "result": "135 passed; 0 failed; 0 skipped; 0 todo",
+        "source": "preceding Mission 4 summary",
+        "production_evidence": false
+      }
+    ]
+  },
+  "retained_uncertain_paths": [
+    ".backups/",
+    ".ultron_patch_backups/",
+    "ultron/voice/reference_staging/",
+    "backup-named and historical source copies listed in docs/ULTRON_CLEANUP_RECORD.json"
+  ],
+  "unmodified_read_only_inventory": "docs/ULTRON_SYSTEM_INVENTORY.json"
+}

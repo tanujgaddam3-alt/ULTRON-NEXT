@@ -1,0 +1,155 @@
+{
+  "schema_version": 1,
+  "title": "ULTRON prioritized limitation remediation plan",
+  "decision": "NO-GO",
+  "deployment_permitted": false,
+  "plan_basis": "docs/ULTRON_COMPREHENSIVE_LIMITATION_AUDIT.md",
+  "phases": [
+    {
+      "id": "PHASE-0",
+      "title": "Close safety and governance blockers before any live maintenance",
+      "order": 0,
+      "depends_on": [],
+      "limitation_ids": [
+        "LIM-006",
+        "LIM-009",
+        "LIM-012",
+        "LIM-005",
+        "LIM-011"
+      ],
+      "actions": [
+        "Keep all existing live services and databases untouched until an explicitly authorized maintenance plan exists.",
+        "Resolve manager ownership using process-start identity, parentage, executable/command identity, and manager artifacts; do not infer ownership from a PID, port, missing lease, or missing socket.",
+        "Before any token-bearing OMEGA adapter request, define and approve an explicit destination allowlist; do not inspect or modify OMEGA.",
+        "Obtain legal/compliance disposition for PyMuPDF and reconcile the Transformers/pypdf advisory results against the exact supported runtime and nested reference environments.",
+        "Keep trading execution blocked outside approved isolated simulation evidence."
+      ],
+      "exit_criteria": [
+        "An operator-reviewed ownership/recovery procedure preserves supervision or enters a documented intervention-required state and contains no unapproved signal/adoption step.",
+        "The configured external integration destination and credential handling are constrained and covered by no-egress-on-rejection tests.",
+        "License and advisory disposition is recorded against an exact dependency inventory.",
+        "Any browser test uses normal private unlock; credentials are never requested in chat or logged."
+      ]
+    },
+    {
+      "id": "PHASE-1",
+      "title": "Establish a reproducible release and recovery baseline",
+      "order": 1,
+      "depends_on": [
+        "PHASE-0"
+      ],
+      "limitation_ids": [
+        "LIM-007",
+        "LIM-008",
+        "LIM-016",
+        "LIM-017",
+        "LIM-019"
+      ],
+      "actions": [
+        "Have the release owner define the complete source/runtime allowlist; exclude credentials, live databases, WAL/SHM files, caches, virtual environments, and unrelated generated/reference material.",
+        "Create a versioned dependency lock/SBOM for the supported runtime and identify separately supported optional environments.",
+        "Create a SHA-256 release manifest; verify archive integrity, exact members, and restoration in a separate temporary directory.",
+        "Run the SQLite online-backup procedure only against explicitly authorized live databases after maintenance approval; preserve originals and verify integrity/schema/size/hash on a separate restore.",
+        "Reconcile operator setup, source endpoint, runtime ownership, and recovery documentation with implementation."
+      ],
+      "exit_criteria": [
+        "Release identity, exact allowlist, test evidence, dependency lock, and archive restoration are independently verified.",
+        "A protected rollback release is identified and restoration is rehearsed.",
+        "A protected, schema-verified database backup and separate restore are verified before deployment authorization."
+      ]
+    },
+    {
+      "id": "PHASE-2",
+      "title": "Complete isolated subsystem acceptance without expanding authority",
+      "order": 2,
+      "depends_on": [
+        "PHASE-0",
+        "PHASE-1"
+      ],
+      "limitation_ids": [
+        "LIM-001",
+        "LIM-002",
+        "LIM-003",
+        "LIM-004",
+        "LIM-005",
+        "LIM-010",
+        "LIM-013",
+        "LIM-014",
+        "LIM-015",
+        "LIM-017",
+        "LIM-018"
+      ],
+      "actions": [
+        "Test CRE contracts on isolated data, clearly distinguishing implemented local stages from unavailable pipeline, publishing, and analytics capabilities.",
+        "Verify authenticated gateway, session expiry/revocation, stale/error states, reconnect, owner-scoped CRE data, scene-image decode, and authorized owner isolation through the normal browser unlock.",
+        "Test voice origin/rate/resource limits while preserving loopback binding.",
+        "Exercise privacy permissions, history retention/deletion, diagnostic persistence, and corruption paths with temporary stores.",
+        "Run focused and broad simulation-only regression suites plus full static/import checks against the exact locked release environment."
+      ],
+      "exit_criteria": [
+        "Every result is tied to an exact source/release identity and isolated fixture or authorized browser session.",
+        "No test weakens authorization, trading, rights, publishing, recovery, or fail-closed behavior.",
+        "No source capability is described as live merely because its unit test passed."
+      ]
+    },
+    {
+      "id": "PHASE-3",
+      "title": "Make a separate operator deployment decision",
+      "order": 3,
+      "depends_on": [
+        "PHASE-0",
+        "PHASE-1",
+        "PHASE-2"
+      ],
+      "limitation_ids": [
+        "LIM-005",
+        "LIM-006",
+        "LIM-007",
+        "LIM-008",
+        "LIM-009",
+        "LIM-011",
+        "LIM-012"
+      ],
+      "actions": [
+        "Prepare a maintenance plan scoped to the verified release and exact service owner; include prechecks, approved change steps, stop conditions, rollback, protected database backups, and post-checks.",
+        "Obtain explicit operator authorization for the actual maintenance window and exact operations.",
+        "Do not start a competing manager, adopt processes, modify databases, deploy, publish, or perform financial actions under this audit."
+      ],
+      "exit_criteria": [
+        "All critical/high deployment gates have direct supporting evidence.",
+        "A rollback artifact and protected database restore are available and verified.",
+        "The operator has approved the exact maintenance plan. Until then, decision remains NO-GO."
+      ]
+    },
+    {
+      "id": "PHASE-4",
+      "title": "Address longer-term product and evidence gaps",
+      "order": 4,
+      "depends_on": [
+        "PHASE-2"
+      ],
+      "limitation_ids": [
+        "LIM-001",
+        "LIM-002",
+        "LIM-003",
+        "LIM-004",
+        "LIM-010",
+        "LIM-013",
+        "LIM-014",
+        "LIM-015",
+        "LIM-018",
+        "LIM-019"
+      ],
+      "actions": [
+        "Only if product owners request it, design missing CRE pipeline stages, publishing integrations, analytics provenance, agent routing, privacy lifecycle, and voice protections.",
+        "Keep uncertain backup/reference code until per-file evidence rules out dynamic, external, test, migration, or recovery use.",
+        "Do not perform broad cleanup or refactoring based solely on age, scanner labels, or complexity metrics."
+      ],
+      "exit_criteria": [
+        "Each new capability has an explicit authority boundary, source of truth, persistence/recovery contract, UI state, and tests before it is represented as available."
+      ]
+    }
+  ],
+  "safest_next_action": "Maintain NO-GO and request an operator-owned, read-only manager-ownership resolution and approved release-scope decision before any live maintenance or deployment.",
+  "validation_rule": "Each referenced limitation ID must exist in docs/ULTRON_LIMITATION_REGISTER.json; no phase authorizes live action without separate operator approval."
+}

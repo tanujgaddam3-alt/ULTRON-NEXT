@@ -1,0 +1,10 @@
+{
+  "name": "ultron-interface",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ULTRON command/intelligence/observability/control interface — contracts, bridge, and providers.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  }
+}

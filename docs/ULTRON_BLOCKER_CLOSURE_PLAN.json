@@ -1,0 +1,608 @@
+{
+  "schema_version": 1,
+  "title": "ULTRON evidence-based blocker closure plan",
+  "created_at": "2026-10-27T19:11:29+05:30",
+  "plan_status": "PROPOSED_NOT_EXECUTED",
+  "deployment_decision": "NO-GO",
+  "scope": {
+    "mode": "planning_and_read_only_source_report_verification",
+    "application_source_changed": false,
+    "live_services_touched": false,
+    "live_databases_accessed": false,
+    "credentials_accessed": false,
+    "external_requests_made": false,
+    "omega_modified_or_accessed": false,
+    "atlas_candidates_treated_as_unused": false,
+    "gates_passed_by_this_plan": []
+  },
+  "evidence_basis": [
+    "docs/ULTRON_COMPREHENSIVE_LIMITATION_AUDIT.md",
+    "docs/ULTRON_LIMITATION_REGISTER.json",
+    "docs/ULTRON_REMEDIATION_PLAN.json",
+    "docs/ULTRON_RUNTIME_OWNERSHIP_AUDIT.md",
+    "docs/ULTRON_RECOVERY_READINESS.json",
+    "docs/ULTRON_RELEASE_MANIFEST.json",
+    "docs/ULTRON_AUTHENTICATED_VERIFICATION_RUNBOOK.md",
+    "docs/ULTRON_INTEGRATION_GAP_REGISTER.json",
+    "docs/ULTRON_DEPENDENCY_SECURITY_REVIEW.md",
+    "docs/ATLAS_ARCHITECTURE_EXPLORER_VALIDATION.md",
+    "scripts/ultron_service_manager.py",
+    "scripts/ultron_release_bundle.py",
+    "scripts/ultron_sqlite_backup.py",
+    "ultron/application/runtime/local_auth_helper.py",
+    "ultron/application/runtime/interface_gateway.py",
+    "ultron/application/content/status.py",
+    "interface/operator-console.js",
+    "interface/services/renderCreAudioEvidence.js",
+    "tests/runtime/test_service_manager.py",
+    "tests/runtime/test_release_bundle.py",
+    "tests/runtime/test_sqlite_backup.py",
+    "tests/interface/test_interface_gateway_cre_status.py",
+    "interface/tests/creStatus.test.mjs",
+    "interface/tests/websocketProvider.test.mjs",
+    "interface/tests/renderCreAudioEvidence.test.mjs"
+  ],
+  "known_report_inconsistencies": [
+    {
+      "id": "atlas-observation-date",
+      "status": "INCONSISTENT",
+      "evidence": "ATLAS_ARCHITECTURE_EXPLORER_VALIDATION.md states filesystem checks occurred on 2026-10-28, later than this plan's current session date 2026-10-27. The referenced Atlas cache timestamp 2026-10-27T13:02:33Z is earlier and must not be conflated with that future-dated check.",
+      "resolution_required": "Record provenance/correct the report date before relying on its filesystem checks as current."
+    },
+    {
+      "id": "transformers-advisory-scope",
+      "status": "NEEDS_ADVISORY_BY_ADVISORY_RECONCILIATION",
+      "evidence": "ULTRON_DEPENDENCY_SECURITY_REVIEW.md says CVE-2026-5241 does not list transformers 4.57.6; ULTRON_COMPREHENSIVE_LIMITATION_AUDIT.md and LIM-012 also cite GHSA-29pf-2h5f-8g72/CVE-2026-4372 and another GHSA range that includes 4.57.6. Different identifiers/ranges are cited; neither a blanket vulnerability nor blanket clearance is proven.",
+      "resolution_required": "Reconcile exact advisory IDs, affected ranges, package origin/version and actual reference-staging loader reachability."
+    },
+    {
+      "id": "pypdf-advisory-coverage",
+      "status": "REPORT_COVERAGE_DIFFERENCE",
+      "evidence": "The comprehensive audit and LIM-012 cite three high pypdf advisories for selected-environment version 6.20.0 with 6.21.2 listed fixed; the specialized dependency review notes pypdf but does not include that advisory assessment. Root requirements are unpinned and production package identity is unknown.",
+      "resolution_required": "Include pypdf in the exact runtime lock/SBOM review; do not infer production exposure from the selected environment."
+    },
+    {
+      "id": "cre-persisted-gallery-contract",
+      "status": "SOURCE_AND_INVENTORY_MISMATCH",
+      "evidence": "The inventory/runbook describe persisted scene-gallery delivery. Current CRE_STATUS returns persisted scene metadata without dataBase64; renderCreAudioEvidence.js displays metadata only. operator-console.js renders dataBase64 returned by the preview action.",
+      "resolution_required": "Product owner must confirm whether persistent pixels are required; if yes, approve a bounded authenticated owner-scoped retrieval contract and add integration tests."
+    },
+    {
+      "id": "test-evidence-time-scope",
+      "status": "HISTORICAL_RESULTS_NOT_FRESH",
+      "evidence": "ULTRON_COMPREHENSIVE_LIMITATION_AUDIT.md says no tests ran for that audit; recovery/release reports quote earlier isolated runs. This is compatible by scope but must not be presented as a fresh result for this closure plan.",
+      "resolution_required": "Re-run qualifying suites against the exact restored release and record command, date, counts, skips and failures."
+    }
+  ],
+  "dependency_graph": {
+    "edges": [
+      ["ULTRON-CLOSE-00", "ULTRON-CLOSE-01"],
+      ["ULTRON-CLOSE-01", "ULTRON-CLOSE-02"],
+      ["ULTRON-CLOSE-01", "ULTRON-CLOSE-03"],
+      ["ULTRON-CLOSE-01", "ULTRON-CLOSE-05"],
+      ["ULTRON-CLOSE-02", "ULTRON-CLOSE-05"],
+      ["ULTRON-CLOSE-03", "ULTRON-CLOSE-05"],
+      ["ULTRON-CLOSE-04", "ULTRON-CLOSE-05"],
+      ["ULTRON-CLOSE-05", "ULTRON-CLOSE-06"],
+      ["ULTRON-CLOSE-06", "ULTRON-CLOSE-07"],
+      ["ULTRON-CLOSE-03", "ULTRON-CLOSE-07"],
+      ["ULTRON-CLOSE-00", "ULTRON-CLOSE-08"],
+      ["ULTRON-CLOSE-02", "ULTRON-CLOSE-08"],
+      ["ULTRON-CLOSE-04", "ULTRON-CLOSE-08"],
+      ["ULTRON-CLOSE-05", "ULTRON-CLOSE-08"],
+      ["ULTRON-CLOSE-06", "ULTRON-CLOSE-08"],
+      ["ULTRON-CLOSE-07", "ULTRON-CLOSE-08"],
+      ["ULTRON-CLOSE-08", "ULTRON-CLOSE-09"],
+      ["ULTRON-CLOSE-09", "ULTRON-CLOSE-10"]
+    ],
+    "parallelizable": [
+      {
+        "mission_id": "ULTRON-CLOSE-04",
+        "may_run_with": ["ULTRON-CLOSE-00", "ULTRON-CLOSE-01", "ULTRON-CLOSE-02"],
+        "condition": "Use temporary databases only; do not touch live database paths."
+      },
+      {
+        "mission_id": "ULTRON-CLOSE-01",
+        "may_run_with": ["ULTRON-CLOSE-04"],
+        "condition": "Release-scope analysis must not change source or use live runtime state."
+      }
+    ],
+    "dependency_rationale": [
+      "The original manager owner and source provenance must be understood before any proposed live maintenance; the source has no supported live adoption or handoff.",
+      "The exact release scope determines which dependencies, licenses, schemas, configs and runtime assets must be locked and reviewed.",
+      "License/advisory approval and CRE product-contract decisions must precede allowlist finalization because they can change the files and capabilities in the candidate release.",
+      "Temporary WAL-mode backup/restore qualification can be performed independently, but does not qualify a live backup.",
+      "Candidate and rollback artifacts must be built and restored before running release-bound regression tests.",
+      "Isolated end-to-end verification is meaningful only against a specific restored candidate and approved CRE contract.",
+      "Live maintenance requires all source, rollback, backup, test and operator-authorization gates; live authenticated acceptance follows the separately authorized maintenance."
+    ]
+  },
+  "recovery_gate": {
+    "status": "NOT_PASSED",
+    "requirements": [
+      "Authenticated evidence of original manager owner/terminal or equivalent owner-controlled startup record.",
+      "Fresh read-only identity tuples for manager and every managed service: PID, process start ticks, executable real path, cwd, command identity, process group, parentage, state-record association, and listener binding/owner.",
+      "Reliable source/release provenance for the manager already in memory; current file hashes, timestamps, PID or port alone do not attest loaded code.",
+      "Documented supported control/shutdown path through the original owner. No unvalidated adoption or competing manager.",
+      "Release-owner-approved exact source/runtime allowlist and dependency lock/SBOM.",
+      "Candidate archive and independently justified rollback archive pass exact-member, SHA-256, CRC/integrity and separate restore checks.",
+      "Temporary WAL-mode online-backup/restore rehearsal passes integrity, schema/version, size, hash, permission and source/WAL preservation checks.",
+      "For any later live backup: explicit operator authorization, expected schema/application/user version, protected owner-only destination, recorded timestamp, verified online backup and separate restore.",
+      "Explicit authorization names exact release and rollback IDs/hashes, affected services/databases, window, change steps and post-checks.",
+      "Secret-free maintenance journal and stop/rollback plan are ready."
+    ],
+    "stop_conditions": [
+      "Manager owner, loaded source identity or original terminal is unknown or disputed.",
+      "Any process PID/start identity, executable, cwd, command, process group, parentage, listener owner or state record is stale or ambiguous.",
+      "Unexpected listener, stale state, missing ownership evidence, absent supported shutdown route or failed control channel.",
+      "Missing/unverified candidate or rollback archive, dependency/license decision, backup, restore, schema, integrity, hash or required test.",
+      "Missing or out-of-scope operator authorization.",
+      "Any request to adopt, signal, restart, alter databases, broaden scope, publish, trade, access OMEGA or expose credentials."
+    ],
+    "on_failure": "Set status to INTERVENTION_REQUIRED, preserve the current stack and records, and do not signal, stop, restart, adopt, repair state artifacts or deploy."
+  },
+  "missions": [
+    {
+      "id": "ULTRON-CLOSE-00",
+      "order": 0,
+      "title": "Resolve runtime ownership and identity",
+      "classification": "CONFIRMED_RUNTIME_ANOMALY_CAUSE_UNRESOLVED",
+      "objective": "Establish who owns the existing manager, identify the recorded services and determine whether reliable launch-time source/release provenance and a supported original-owner control path exist.",
+      "prerequisites": [],
+      "scope": [
+        "Operator-led read-only manager/service identity capture.",
+        "Inspect original manager terminal/session or authenticated startup/ownership records.",
+        "Compare manager/service command, executable, cwd, process start identity, process group, parentage, state records and listener ownership.",
+        "Report loaded-source association as UNKNOWN when direct provenance is absent."
+      ],
+      "likely_files_to_change": [],
+      "explicit_exclusions": [
+        "No signal, stop, restart, adoption, handoff, second manager, lease/socket creation/deletion, or service-state edit.",
+        "No live database, credential, or unrelated runtime access."
+      ],
+      "tests_and_acceptance": [
+        "No automated unit test can establish ownership of the live manager.",
+        "Accept only owner-controlled startup evidence plus identity-matched current process records and a documented supported control path.",
+        "If any identity/source/owner fact remains ambiguous, classify INTERVENTION_REQUIRED and stop."
+      ],
+      "recovery_or_rollback": "Preserve the running stack, supervision and state records. No rollback operation is authorized.",
+      "evidence_required_for_closure": [
+        "Timestamped sanitized identity tuple for manager and all four recorded services.",
+        "Original manager owner/terminal or authenticated owner audit evidence.",
+        "Release/source provenance or explicit UNKNOWN result.",
+        "Operator confirmation of any state-directory lifecycle action."
+      ],
+      "operator_blockers": [
+        "Responsible operator must identify/confirm owner and provide approved read-only access to ownership evidence.",
+        "If original owner/terminal cannot be found, intervention by the system owner is required."
+      ],
+      "depends_on": [],
+      "status": "OPEN"
+    },
+    {
+      "id": "ULTRON-CLOSE-01",
+      "order": 1,
+      "title": "Approve exact release scope",
+      "classification": "CONFIRMED_RELEASE_BLOCKER",
+      "objective": "Identify the intended source snapshot and close all runtime-required files, configs, entrypoints, package data, schemas, migrations and dynamic/script-loaded resources.",
+      "prerequisites": ["ULTRON-CLOSE-00"],
+      "scope": [
+        "Release owner selects exact source/release identity and service contract.",
+        "Build an explicit file allowlist and dependency/resource closure.",
+        "Record required optional assets and intentionally excluded environments."
+      ],
+      "likely_files_to_change": [
+        "A future approved release file list and release manifest.",
+        "Potentially docs/ULTRON_RELEASE_MANIFEST.json in a separately authorized documentation task."
+      ],
+      "explicit_exclusions": [
+        "Do not treat the scoped 14-file baseline or any arbitrary ZIP as deployable or known-good.",
+        "Exclude credentials, .env files, live databases/WAL/SHM, caches, virtual environments and unrelated generated files.",
+        "Do not delete or classify Atlas's 370 environment candidates as unused."
+      ],
+      "tests_and_acceptance": [
+        "Review import, script, service, configuration, plugin, package-data and schema closure.",
+        "Every included path has a rationale/hash; every uncertain runtime dependency blocks closure or is explicitly resolved.",
+        "Allowlist is approved by the release owner."
+      ],
+      "recovery_or_rollback": "Preserve current source and all pre-existing archives; do not overwrite or rename artifacts.",
+      "evidence_required_for_closure": [
+        "Signed or otherwise authenticated release-owner approval of source identity and allowlist.",
+        "Exact exclusion list and runtime file/dependency closure record."
+      ],
+      "operator_blockers": ["Release owner must define and approve intended release scope."],
+      "depends_on": ["ULTRON-CLOSE-00"],
+      "status": "OPEN"
+    },
+    {
+      "id": "ULTRON-CLOSE-02",
+      "order": 2,
+      "title": "Resolve dependency and license gates",
+      "classification": "CONFIRMED_APPROVAL_REQUIREMENT_AND_PARTIALLY_VERIFIED_SCANNER_FINDINGS",
+      "objective": "Produce the supported-runtime lock/SBOM and resolve PyMuPDF licensing, pypdf advisory status, and exact Transformers advisory applicability.",
+      "prerequisites": ["ULTRON-CLOSE-01"],
+      "scope": [
+        "Resolve PyMuPDF AGPL compliance or commercial-license decision for actual deployment/distribution.",
+        "Resolve exact pypdf version and advisory applicability for the intended runtime.",
+        "Reconcile Transformers advisory IDs/ranges separately and trace reference-staging model-loader paths.",
+        "Keep managed Edge and optional XTTS environments distinct."
+      ],
+      "likely_files_to_change": [
+        "A versioned dependency lock and SBOM for the selected runtime.",
+        "Possibly requirements.txt or a separate optional dependency manifest after a separate implementation approval.",
+        "A dependency/license disposition record."
+      ],
+      "explicit_exclusions": [
+        "No package install or upgrade in this planning mission.",
+        "Do not remove or replace PyMuPDF without legal and behavior-compatibility review.",
+        "Do not declare Transformers 4.57.6 categorically vulnerable or clear based on a different advisory."
+      ],
+      "tests_and_acceptance": [
+        "Exact installed/locked versions match SBOM and target platform.",
+        "Advisories are listed by ID, version range, package origin and reachable call path.",
+        "Legal/compliance decision is recorded."
+      ],
+      "recovery_or_rollback": "Any later dependency change must retain a prior approved lock and rebuild/requalify a new release candidate.",
+      "evidence_required_for_closure": [
+        "Signed legal/compliance disposition for PyMuPDF.",
+        "Resolved lock/SBOM for required runtime and separately classified optional environments.",
+        "Advisory applicability table and loader-reachability evidence."
+      ],
+      "operator_blockers": [
+        "Legal/compliance owner must decide license applicability or approve a commercial license.",
+        "Release owner must approve supported runtime scope and dependency versions."
+      ],
+      "depends_on": ["ULTRON-CLOSE-01"],
+      "status": "OPEN"
+    },
+    {
+      "id": "ULTRON-CLOSE-03",
+      "order": 3,
+      "title": "Approve CRE capability and image contract",
+      "classification": "CONFIRMED_CAPABILITY_LIMITS_AND_PERSISTED_GALLERY_CONTRACT_GAP",
+      "objective": "Define the approved local CRE verification scope and decide whether the dashboard must display persisted scene image bytes or only persisted evidence metadata.",
+      "prerequisites": ["ULTRON-CLOSE-01"],
+      "scope": [
+        "Confirm authenticated CRE status and synthetic local preview as the current supported workflow.",
+        "Specify status freshness, stale/error behavior, preview state, evidence hashes, dimensions and image-decode requirements.",
+        "Decide whether a new owner-scoped persisted-image retrieval contract is required.",
+        "Keep processing, publishing and analytics states unavailable unless separately implemented."
+      ],
+      "likely_files_to_change": [
+        "No files if current preview-only boundary is accepted.",
+        "If persistent pixels are required: likely gateway/CRE asset retrieval implementation, frontend contracts/provider and operator-console renderer, plus focused tests; exact changes require approved design."
+      ],
+      "explicit_exclusions": [
+        "No media discovery/fetching, external publishing, revenue claims, rights-policy weakening, OMEGA, or trading changes.",
+        "No assumption that current status metadata already renders persisted image pixels."
+      ],
+      "tests_and_acceptance": [
+        "Contract covers authenticated owner scope, payload bounds, hash/dimension bindings, image tamper and decode failures.",
+        "Unavailable processing, preview-only rendering, mock-only publishing and unavailable analytics remain explicit."
+      ],
+      "recovery_or_rollback": "If future code is approved, keep changes isolated and revertible; fallback remains metadata/status and clearly labeled preview-only behavior.",
+      "evidence_required_for_closure": [
+        "Written CRE product-owner decision on persisted image delivery.",
+        "Rights-policy boundary and approved synthetic fixture."
+      ],
+      "operator_blockers": [
+        "CRE/product owner must approve capability scope.",
+        "Rights-policy owner must approve the synthetic preview policy."
+      ],
+      "depends_on": ["ULTRON-CLOSE-01"],
+      "status": "OPEN"
+    },
+    {
+      "id": "ULTRON-CLOSE-04",
+      "order": 4,
+      "title": "Rehearse isolated SQLite recovery",
+      "classification": "HISTORICAL_ISOLATED_TEST_EVIDENCE_LIVE_RECOVERY_UNVERIFIED",
+      "objective": "Freshly qualify the existing online SQLite backup and separate restore flow using only temporary WAL-mode fixtures.",
+      "prerequisites": [],
+      "scope": [
+        "Create a temporary WAL-mode database with known schema/user/application versions.",
+        "Use scripts/ultron_sqlite_backup.py online backup, verification and restore APIs.",
+        "Record source/WAL preservation, owner-only permissions, integrity, schema, size, timestamp and SHA-256."
+      ],
+      "likely_files_to_change": [
+        "None if current utility and tests pass.",
+        "If a defect is found, narrowly scoped changes to scripts/ultron_sqlite_backup.py and tests/runtime/test_sqlite_backup.py require a separate implementation mission."
+      ],
+      "explicit_exclusions": [
+        "Never use a live ULTRON database path.",
+        "No live open, copy, checkpoint, migration, backup, restore or mutation."
+      ],
+      "tests_and_acceptance": [
+        "Run tests/runtime/test_sqlite_backup.py against temporary fixtures.",
+        "Verify 0700 backup directory, 0600 backup/manifest, integrity_check=ok, expected schema/application/user versions, size and digest.",
+        "Restore to a separate destination and verify schema/integrity; source DB and WAL remain unchanged."
+      ],
+      "recovery_or_rollback": "Use and clean only test-owned temporary artifacts; preserve fixture source until comparisons complete.",
+      "evidence_required_for_closure": [
+        "Fresh command output with pass/fail/skip counts.",
+        "Sanitized fixture manifest and before/after source/WAL checksums."
+      ],
+      "operator_blockers": [],
+      "depends_on": [],
+      "status": "OPEN"
+    },
+    {
+      "id": "ULTRON-CLOSE-05",
+      "order": 5,
+      "title": "Build candidate and rollback artifacts",
+      "classification": "CONFIRMED_RELEASE_AND_ROLLBACK_BLOCKER",
+      "objective": "Create reproducible candidate and independently justified known-good rollback archives using exact approved file lists.",
+      "prerequisites": [
+        "ULTRON-CLOSE-01",
+        "ULTRON-CLOSE-02",
+        "ULTRON-CLOSE-03",
+        "ULTRON-CLOSE-04"
+      ],
+      "scope": [
+        "Build with scripts/ultron_release_bundle.py.",
+        "Verify exact archive members, per-file hashes, archive SHA-256, integrity and allowlist.",
+        "Restore candidate and rollback to separate new directories and verify all restored files.",
+        "Run import/startup/configuration checks only on isolated restored candidate."
+      ],
+      "likely_files_to_change": [
+        "Approved release allowlist and signed release/rollback manifests.",
+        "Potential dependency lock/SBOM output."
+      ],
+      "explicit_exclusions": [
+        "No deployment.",
+        "No arbitrary ZIP relabeling or use of the 14-file baseline as rollback.",
+        "No credentials, live DB/WAL/SHM, venv/cache, or unapproved reference environment."
+      ],
+      "tests_and_acceptance": [
+        "Run tests/runtime/test_release_bundle.py.",
+        "Same input produces reproducible bytes; tampering is rejected; member set exactly equals manifest.",
+        "Candidate and independently known-good rollback restore to separate paths and match per-file hashes.",
+        "If a trustworthy known-good rollback source cannot be established, leave gate NO-GO."
+      ],
+      "recovery_or_rollback": "Keep original archives/source untouched; only restore into fresh isolated destinations.",
+      "evidence_required_for_closure": [
+        "Release and rollback IDs, archive hashes, manifests, exact file lists, restore hashes and test output.",
+        "Release-owner approval binding artifacts to the intended source snapshot."
+      ],
+      "operator_blockers": ["Release owner must identify and approve a genuinely known-good rollback source."],
+      "depends_on": [
+        "ULTRON-CLOSE-01",
+        "ULTRON-CLOSE-02",
+        "ULTRON-CLOSE-03",
+        "ULTRON-CLOSE-04"
+      ],
+      "status": "OPEN"
+    },
+    {
+      "id": "ULTRON-CLOSE-06",
+      "order": 6,
+      "title": "Qualify exact restored candidate",
+      "classification": "MISSING_RELEASE_BOUND_TEST_EVIDENCE",
+      "objective": "Run focused and required broader regressions against the exact restored candidate and pinned dependency environment.",
+      "prerequisites": ["ULTRON-CLOSE-05"],
+      "scope": [
+        "Service manager and maintenance ownership tests.",
+        "Authentication helper, gateway authorization, CRE status/preview, System Intelligence and persistence tests.",
+        "Release/SQLite tests and frontend suite.",
+        "Record optional-dependency collection errors, safety guards and product failures separately."
+      ],
+      "likely_files_to_change": [],
+      "explicit_exclusions": [
+        "No live service/database calls, credentials, trading/order submission, publishing, OMEGA requests, or assertion weakening.",
+        "Do not run an unbounded suite if it may touch live systems; confirm simulation and fixture isolation."
+      ],
+      "tests_and_acceptance": [
+        "Fresh exact command, counts, skips, failures and environment recorded for every required suite.",
+        "No test failure is suppressed; safety guards remain enabled.",
+        "Results are tied to the candidate release ID/hash and dependency lock."
+      ],
+      "recovery_or_rollback": "Any source/dependency change invalidates this qualification and requires a rebuilt candidate and rerun.",
+      "evidence_required_for_closure": [
+        "Machine-readable test result summary bound to release hash.",
+        "Static/import diagnostics scope and unresolved optional-dependency classification."
+      ],
+      "operator_blockers": ["Release owner approves any change to the intended tested release."],
+      "depends_on": ["ULTRON-CLOSE-05"],
+      "status": "OPEN"
+    },
+    {
+      "id": "ULTRON-CLOSE-07",
+      "order": 7,
+      "title": "Verify isolated authenticated CRE end to end",
+      "classification": "LIVE_BROWSER_UNVERIFIED_AND_PERSISTED_IMAGE_PATH_UNRESOLVED",
+      "objective": "Exercise the candidate helper, authenticated gateway, CRE status and synthetic local preview in an isolated browser/test stack.",
+      "prerequisites": ["ULTRON-CLOSE-03", "ULTRON-CLOSE-06"],
+      "scope": [
+        "Use temporary CRE database, isolated ports, synthetic local script and test identities.",
+        "Verify fresh CRE status, preview generation, backend/front-end contract, hash and dimensions.",
+        "If approved and implemented, independently verify authenticated persisted-image retrieval.",
+        "Verify stale/error, reconnect and owner-isolation fixtures."
+      ],
+      "likely_files_to_change": [
+        "Existing tests/interface/test_interface_gateway_cre_status.py and interface/tests/* CRE/provider/render tests if gaps are found.",
+        "An isolated browser harness only if approved and required by existing project test patterns.",
+        "Any implementation changes must be separately reviewed and added to a new candidate."
+      ],
+      "explicit_exclusions": [
+        "No production credentials/data or live services.",
+        "No external media fetch, publishing, trading or OMEGA.",
+        "Fixture owner-isolation does not establish live second-principal isolation."
+      ],
+      "tests_and_acceptance": [
+        "Synthetic preview has correlated authenticated response and explicitly unverified rights/review/publication state.",
+        "Scene asset hash, byte size, format, manifest/contract bindings and dimensions agree with backend evidence.",
+        "Every displayed image decodes in the browser with naturalWidth>0 and naturalHeight>0.",
+        "Stale/unavailable/unauthorized errors remain visible; owner A cannot read owner B fixture data."
+      ],
+      "recovery_or_rollback": "Isolated processes and temporary data only; tear down only resources created by the test and preserve sanitized evidence.",
+      "evidence_required_for_closure": [
+        "Release-bound test output.",
+        "Sanitized browser console/error summary and freshness timestamps.",
+        "Per-image backend/displayed hash, dimensions and decode result.",
+        "Separate fixture label and cross-owner denial result."
+      ],
+      "operator_blockers": [
+        "Product owner approval for persisted-image delivery if required.",
+        "Live owner-isolation remains gated on a separately authorized second principal."
+      ],
+      "depends_on": ["ULTRON-CLOSE-03", "ULTRON-CLOSE-06"],
+      "status": "OPEN"
+    },
+    {
+      "id": "ULTRON-CLOSE-08",
+      "order": 8,
+      "title": "Authorize live recovery preflight",
+      "classification": "OPERATOR_AUTHORIZATION_AND_LIVE_EVIDENCE_MISSING",
+      "objective": "Prepare a separately approved live maintenance window only after all isolated release, rollback, backup and test gates pass.",
+      "prerequisites": [
+        "ULTRON-CLOSE-00",
+        "ULTRON-CLOSE-02",
+        "ULTRON-CLOSE-04",
+        "ULTRON-CLOSE-05",
+        "ULTRON-CLOSE-06",
+        "ULTRON-CLOSE-07"
+      ],
+      "scope": [
+        "Recheck live identity using read-only methods immediately before maintenance.",
+        "Obtain explicit authorization for any live online backup and perform only under the future authorized task.",
+        "Review original-owner-supported service control path and durable journal."
+      ],
+      "likely_files_to_change": [
+        "No application source.",
+        "Protected external backup and maintenance journal artifacts only under separate authorization."
+      ],
+      "explicit_exclusions": [
+        "This plan does not authorize or execute live database access/backup, signals, stop/restart, adoption/handoff or deployment."
+      ],
+      "tests_and_acceptance": [
+        "Every recovery_gate requirement passes with evidence.",
+        "Any ambiguity or failed restore/test returns to NO-GO/INTERVENTION_REQUIRED.",
+        "Authorization names exact release/rollback IDs, data paths, services, time window and stop conditions."
+      ],
+      "recovery_or_rollback": "On any mismatch, preserve current services/state and stop; do not repair ownership artifacts or attempt a new manager.",
+      "evidence_required_for_closure": [
+        "Operator-approved maintenance plan and exact scope.",
+        "Read-only process/source identity record.",
+        "Protected backup and separate restore verification if live backup is authorized.",
+        "Journal and rollback plan."
+      ],
+      "operator_blockers": [
+        "Responsible operator must authorize exact live inspection/backup scope.",
+        "Original manager owner must confirm supported control path."
+      ],
+      "depends_on": [
+        "ULTRON-CLOSE-00",
+        "ULTRON-CLOSE-02",
+        "ULTRON-CLOSE-04",
+        "ULTRON-CLOSE-05",
+        "ULTRON-CLOSE-06",
+        "ULTRON-CLOSE-07"
+      ],
+      "status": "OPEN"
+    },
+    {
+      "id": "ULTRON-CLOSE-09",
+      "order": 9,
+      "title": "Execute separately authorized maintenance",
+      "classification": "NOT_AUTHORIZED_BY_THIS_PLAN",
+      "objective": "Carry out only an operator-approved maintenance/deployment plan against the exact verified candidate and recovery point.",
+      "prerequisites": ["ULTRON-CLOSE-08"],
+      "scope": [
+        "Separate future task with exact approved service, release and data scope.",
+        "Run prechecks, approved action, postchecks and maintenance journal."
+      ],
+      "likely_files_to_change": [],
+      "explicit_exclusions": [
+        "No implicit authority for voice, trading, publishing, OMEGA or unrelated services.",
+        "No manager adoption or signal if current owner/identity is ambiguous."
+      ],
+      "tests_and_acceptance": [
+        "Runtime identity matches approved release/source.",
+        "Only planned service identities change; unrelated services remain unchanged if action is scoped.",
+        "Required service readiness, authentication and recovery checks pass."
+      ],
+      "recovery_or_rollback": "Use only the verified approved rollback bundle and protected database restore procedure.",
+      "evidence_required_for_closure": [
+        "Operator-signed maintenance journal, release hashes, process identities, readiness and test results."
+      ],
+      "operator_blockers": ["Explicit operator approval for the maintenance window and exact operations."],
+      "depends_on": ["ULTRON-CLOSE-08"],
+      "status": "OPEN"
+    },
+    {
+      "id": "ULTRON-CLOSE-10",
+      "order": 10,
+      "title": "Verify authenticated live acceptance",
+      "classification": "LIVE_AUTHENTICATED_ACCEPTANCE_NOT_VERIFIED",
+      "objective": "After the separately authorized maintenance, verify current authenticated gateway and CRE/dashboard behavior without handling credentials outside the private UI.",
+      "prerequisites": ["ULTRON-CLOSE-09"],
+      "scope": [
+        "Use normal local unlock UI; operator privately enters credential.",
+        "Verify authenticated gateway, current status timestamps, stale/error behavior, CRE synthetic preview if separately authorized, actual persisted-gallery path if implemented, reconnect and browser console.",
+        "Use a second authorized principal before making a live owner-isolation claim."
+      ],
+      "likely_files_to_change": ["Separate sanitized operator verification record only."],
+      "explicit_exclusions": [
+        "No credentials in chat, shell, logs or screenshots.",
+        "No direct unauthenticated gateway, publishing, trading, database mutation, OMEGA access or service restart."
+      ],
+      "tests_and_acceptance": [
+        "Follow docs/ULTRON_AUTHENTICATED_VERIFICATION_RUNBOOK.md.",
+        "UI status is tied to fresh backend response and correct release identity.",
+        "Every displayed image decodes with nonzero dimensions and matches current backend hash/dimensions.",
+        "Owner-isolation claim is omitted unless a second authorized principal is used."
+      ],
+      "recovery_or_rollback": "Stop on identity, auth, freshness, image-integrity or authorization mismatch; report actual state and use no unapproved recovery action.",
+      "evidence_required_for_closure": [
+        "Sanitized timestamped browser record tied to release identity.",
+        "Status/freshness/error and reconnect results.",
+        "Per-image backend/display hashes, dimensions and decode result.",
+        "Console summary and authorized principal labels only."
+      ],
+      "operator_blockers": [
+        "Operator must privately unlock dashboard.",
+        "Authorized second principal required for live owner-isolation verification."
+      ],
+      "depends_on": ["ULTRON-CLOSE-09"],
+      "status": "OPEN"
+    }
+  ],
+  "deferred_capabilities": [
+    {
+      "capability": "CRE media processing and transcription",
+      "status": "NOT_CONFIGURED_OR_NOT_EXPOSED",
+      "closure_condition": "Separate owner-approved mission defines lawful intake, rights, model/assets, bounded processing, cancellation/recovery, owner scope, UI/error states and tests."
+    },
+    {
+      "capability": "CRE production publishing",
+      "status": "MOCK_ONLY",
+      "closure_condition": "Separate mission and explicit authorization for provider integration, protected credentials, approval/rights/kill-switch, durable external-operation recovery and sandbox/live acceptance."
+    },
+    {
+      "capability": "CRE analytics and revenue",
+      "status": "UNAVAILABLE",
+      "closure_condition": "Approved source, attribution, time range, freshness and error contract plus tests; no revenue inference from preview/review/upload state."
+    },
+    {
+      "capability": "Atlas dead-file candidates",
+      "status": "NOT_CONFIRMED_UNUSED",
+      "closure_condition": "No cleanup proposed. Any later candidate-specific change requires independent dynamic/script/plugin/config/recovery evidence."
+    }
+  ],
+  "first_actionable_blocker": {
+    "mission_id": "ULTRON-CLOSE-00",
+    "action": "Have the responsible operator identify the original manager owner/terminal and supply read-only evidence for current manager/service identities and launch-time source provenance.",
+    "operator_required": true,
+    "stop_if_ambiguous": true,
+    "no_gate_passed": true
+  },
+  "safe_engineering_work_after_operator_gate": [
+    "Run SQLite online-backup/restore rehearsal against temporary WAL-mode databases only.",
+    "Resolve approved file closure and dependency/license/advisory inventory without changing the live runtime.",
+    "Test candidate release bundle creation, verification and restoration in isolated directories.",
+    "Run candidate-bound simulation, gateway/auth/CRE, persistence and frontend tests.",
+    "Resolve and, only after product approval, implement the authenticated owner-scoped persisted-image retrieval contract.",
+    "Run an isolated temporary-DB/browser end-to-end synthetic preview test with fixture identities."
+  ],
+  "final_rule": "No plan artifact or unit test passes a gate by itself. Deployment remains NO-GO until each applicable gate has direct, release-bound evidence and the operator explicitly authorizes the exact maintenance operation."
+}

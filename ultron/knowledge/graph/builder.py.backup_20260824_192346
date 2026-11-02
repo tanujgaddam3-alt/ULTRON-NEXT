@@ -1,0 +1,251 @@
+import re
+
+
+class KnowledgeGraphBuilder:
+    """
+    Generic knowledge graph builder.
+
+    Converts:
+
+    Concept + relation + Concept
+
+    into graph edges.
+    """
+
+
+    def build(self, knowledge_units):
+
+     graph = {
+
+        "nodes": set(),
+
+        "edges": []
+
+    }
+
+
+     for unit in knowledge_units:
+ 
+        source = unit["source"]
+
+        target = unit["target"]
+
+        relation = unit["relation"]
+
+
+        graph["nodes"].add(
+            source
+        )
+
+        graph["nodes"].add(
+            target
+        )
+
+
+        graph["edges"].append(
+
+            {
+
+            "source": source,
+
+            "relation": relation,
+
+            "target": target,
+
+            "confidence": unit.get(
+                "confidence",
+                0.5
+            )
+
+            }
+
+        )
+
+
+     graph["nodes"] = list(
+        graph["nodes"]
+    )
+
+
+     return graph
+
+    def collect_text(self, unit):
+
+     text = []
+
+    # highest quality first
+     text.extend(
+        unit.relationships
+    )
+
+     text.extend(
+        unit.rules
+    )
+
+     return " ".join(text)
+
+
+    def split_sentences(self, text):
+
+        return [
+            s.strip()
+            for s in re.split(
+                r"\n+|(?<=[.!?])\s+",
+                text
+            )
+            if len(s.strip()) > 5
+        ]
+
+
+
+    def extract_relations(self, sentence):
+
+        patterns = [
+
+            "causes",
+            "caused by",
+            "depends on",
+            "affects",
+            "changes",
+            "describes",
+            "defines",
+            "represents",
+            "measures",
+            "converts",
+            "produces",
+            "contains",
+            "uses",
+            "maps",
+            "derived from"
+
+        ]
+
+
+        text = sentence.strip()
+
+
+        lower = text.lower()
+
+
+        for relation in patterns:
+
+            if relation in lower:
+
+                parts = lower.split(
+                    relation
+                )
+
+
+                if len(parts) == 2:
+
+                    source = self.clean_entity(
+                             parts[0]
+                            )
+
+                    target = self.clean_entity(
+                             parts[1]
+                    )
+                if not self.is_valid_entity(source):
+                      return []
+
+                if not self.is_valid_entity(target):
+                         return []
+
+
+                if len(source) < 3 or len(target) < 3:
+                      return []
+
+                if source.lower() == "answer":
+                     return []
+
+                if source.lower() == "definition":
+                   return []
+                return [
+                        (
+                            source.title(),
+                            relation,
+                            target.title()
+                        )
+                    ]
+
+
+        return []
+    def is_valid_entity(self, entity):
+
+     blacklist = [
+
+        "context",
+        "definition",
+        "example",
+        "answer",
+        "correct",
+        "wrong",
+        "misconception",
+        "why",
+        "this",
+        "it"
+
+    ]
+
+
+     lower = entity.lower()
+     if any(symbol in entity for symbol in ["=", "→", "∫", "Ω", "√", "Σ"]):
+         return False
+
+
+     if lower in blacklist:
+        return False
+
+ 
+     if len(entity.split()) > 5:
+        return False
+
+
+     if len(entity) < 3:
+         return False
+
+
+     return True
+    def clean_entity(self, text):
+
+     text = text.strip()
+
+    # remove markdown symbols
+     text = re.sub(
+        r"[*#:`\"']",
+        "",
+        text
+    )
+
+    # remove common labels
+     prefixes = [
+        "definition:",
+        "example:",
+        "answer:",
+        "why:",
+        "wrong:",
+        "correct:",
+        "misconception:"
+    ]
+
+     lower = text.lower()
+
+     for prefix in prefixes:
+
+        if lower.startswith(prefix):
+
+            text = text[len(prefix):]
+
+            break
+
+
+    # remove extra spaces
+
+     text = re.sub(
+        r"\s+",
+        " ",
+        text
+    )
+
+
+     return text.strip().title()

@@ -1,0 +1,120 @@
+import subprocess
+from datetime import UTC, datetime
+from typing import ClassVar
+
+from pydantic import BaseModel, Field
+
+from ultron.world.models import WorldSnapshot
+from ultron.world.observers.manager import ObserverManager
+
+
+def get_running_processes():
+    """
+    Returns currently running process names.
+    """
+
+    try:
+        result = subprocess.run(
+            ["bash", "-c", "ps -e -o comm"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
+        return [
+            process.strip() for process in result.stdout.splitlines() if process.strip()
+        ]
+
+    except Exception:
+        return []
+
+
+class ObservationResult(BaseModel):
+    """
+    Result of environment observation.
+    """
+
+    snapshot: WorldSnapshot
+
+    changed: bool = False
+
+    changes: list[str] = Field(default_factory=list)
+
+    observed_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    def __getattr__(self, item):
+        """
+        Maintain compatibility with
+        previous WorldSnapshot API.
+        """
+
+        return getattr(
+            self.snapshot,
+            item,
+        )
+
+
+class WorldObserver:
+    """
+    Observes the current environment.
+    """
+
+    def __init__(self):
+
+        self.previous_snapshot = None
+
+        self.manager = ObserverManager()
+
+    def observe(self) -> ObservationResult:
+
+        snapshot = self.manager.observe()
+
+        changes = self.detect_changes(snapshot)
+
+        self.previous_snapshot = snapshot
+
+        return ObservationResult(
+            snapshot=snapshot,
+            changed=len(changes) > 0,
+            changes=changes,
+        )
+
+    def get_running_processes():
+
+        try:
+            result = subprocess.run(
+                ["bash", "-c", "ps -e -o comm"],
+                capture_output=True,
+                text=True,
+            )
+
+            return result.stdout.splitlines()
+
+        except Exception:
+            return []
+
+    def detect_changes(
+        self,
+        snapshot,
+    ):
+
+        if not self.previous_snapshot:
+            return ["Initial world observation"]
+
+        changes: ClassVar = []
+
+        old_processes = {entity.name for entity in self.previous_snapshot.entities}
+
+        new_processes = {entity.name for entity in snapshot.entities}
+
+        started = new_processes - old_processes
+
+        stopped = old_processes - new_processes
+
+        for process in started:
+            changes.append(f"Process started: {process}")
+
+        for process in stopped:
+            changes.append(f"Process stopped: {process}")
+
+        return changes

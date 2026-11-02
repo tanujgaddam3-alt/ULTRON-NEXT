@@ -1,0 +1,305 @@
+{
+  "experiment": {
+    "name": "ULTRON CRE Phase 4.1 Qwen Vision Feasibility Prototype",
+    "status": "blocked_by_memory_safety_guard",
+    "verdict": "BLOCKED: MODEL OR HARDWARE UNAVAILABLE",
+    "started_at": "2026-10-30T16:21:00.022Z",
+    "ended_at": "2026-10-30T16:21:25.493Z",
+    "scope": "One synthetic image request was attempted; no response was received. No application data or code was accessed.",
+    "temporary_workspace": "/tmp/ultron_cre_phase4_1",
+    "cleanup": {
+      "performed": true,
+      "verified_absent": true
+    }
+  },
+  "environment": {
+    "ollama": {
+      "version": "0.40.1",
+      "api_base": "http://127.0.0.1:11434",
+      "api_version_http_status": 200,
+      "api_tags_http_status": 200,
+      "listener_binding": "127.0.0.1:11434",
+      "loaded_model_before": false,
+      "loaded_model_after": false,
+      "daemon_restarted": false,
+      "model_pulled": false
+    },
+    "model": {
+      "name": "qwen3.5:9b",
+      "digest": "56671c2ab9385f9cfcb404638e32cd62d88e3501d44822208363c010179a3c90",
+      "architecture": "qwen35",
+      "runner": "llamacpp",
+      "parameters": "9.0B",
+      "quantization": "Q4_K_M",
+      "size_bytes": 6550825550,
+      "context_length_metadata": 262144,
+      "embedding_length": 4096,
+      "capabilities": [
+        "completion",
+        "vision",
+        "tools",
+        "thinking"
+      ],
+      "projector": {
+        "architecture": "clip",
+        "parameters": "456.01M",
+        "embedding_length": 1152
+      },
+      "ollama_reported_license": "Apache License, Version 2.0, January 2004",
+      "upstream_model_card_reviewed": false
+    },
+    "host": {
+      "cpu": "AMD Ryzen 7 4800H with Radeon Graphics",
+      "cores": 8,
+      "threads": 16,
+      "avx2": true,
+      "ram_total_bytes_rounded": 16106127360,
+      "swap_total_bytes": 4294967296,
+      "gpu": "AMD/ATI Renoir Radeon RX Vega 6",
+      "gpu_utilization": null,
+      "gpu_memory": null,
+      "gpu_telemetry_unavailable": true,
+      "disk_available_bytes_rounded": 41875931136,
+      "ffmpeg_version": "8.0.1-3ubuntu2+esm5",
+      "node_version": "v24.22.0",
+      "operating_system": "Linux"
+    },
+    "resource_snapshots": {
+      "preflight": {
+        "mem_available_bytes": 5304401920,
+        "swap_free_bytes": 4294316032
+      },
+      "request_start": {
+        "mem_available_bytes": 5160235008,
+        "swap_free_bytes": 4294316032
+      },
+      "low_sample_before_abort": {
+        "elapsed_ms": 25023,
+        "mem_available_bytes": 2103181312,
+        "swap_free_bytes": 4213092352
+      },
+      "cancellation_handler": {
+        "elapsed_ms": 25471,
+        "mem_available_bytes": 2203377664,
+        "swap_free_bytes": 4120870912
+      },
+      "post_request_check": {
+        "mem_available_bytes": 5231607808,
+        "swap_free_bytes": 4120985600,
+        "ollama_ps_empty": true
+      }
+    },
+    "process_memory_measurement": {
+      "method": "Sum of resident pages for processes whose /proc/comm was exactly 'ollama'",
+      "daemon_rss_before_bytes": 37306368,
+      "observed_peak_rss_bytes": 40542208,
+      "daemon_rss_after_bytes": 35966976,
+      "limitation": "This filter does not establish total runner RSS; the complete inference process peak RSS was unavailable."
+    }
+  },
+  "dataset": {
+    "generation": "Node.js generated vector SVG scenes; FFmpeg 8.0.1 with librsvg rendered each to PNG.",
+    "all_inputs_synthetic": true,
+    "external_images_used": false,
+    "photo_or_private_media_used": false,
+    "image_count": 16,
+    "width": 1024,
+    "height": 768,
+    "frames": [
+      {
+        "file": "images/image1_objects.png",
+        "description": "Person-like stick figure, table, red ball, blue box, and chair.",
+        "bytes": 20280,
+        "sha256": "20b23bc534fc74be90c2af3d922a15a312af9f7a9b663329ab7e1a2f91ed484b"
+      },
+      {
+        "file": "images/image2_activity.png",
+        "description": "Person-like figure reaching toward a red ball at a table.",
+        "bytes": 14272,
+        "sha256": "9a929bd9a0e1c0b7d1fa98064da8d23fc9bebe523f1d668a7da1ec0a12869306"
+      },
+      {
+        "file": "images/image3_environment.png",
+        "description": "Stylized room with window, seating, lamp, plant, and table.",
+        "bytes": 15083,
+        "sha256": "9b2c02315f5a6c0dbadd14b0942d0aff231aa16e8cbcc12db682e0b03cddc332"
+      },
+      {
+        "file": "images/image4_relationships.png",
+        "description": "Red ball, blue box, green object, table, and chair in distinct positions.",
+        "bytes": 12362,
+        "sha256": "898494b1423595ca91c1fe469c25a68d27bc5ca6767f3d2370212b9c1fb3b82b"
+      },
+      {
+        "file": "images/sequenceA_1.png",
+        "description": "Ball at first, far-left sequence position; timestamp 0 seconds.",
+        "bytes": 9126,
+        "sha256": "321e66f336678b4e4c1283f56e4b7c391e31c86accfd9ce4d22fe6aab9346992"
+      },
+      {
+        "file": "images/sequenceA_2.png",
+        "description": "Ball at second sequence position; timestamp 1 second.",
+        "bytes": 9096,
+        "sha256": "4c3937b227f5836afd35ff838eecf3e7ebe8e2afac4d80c918ae53896fb1dc6b"
+      },
+      {
+        "file": "images/sequenceA_3.png",
+        "description": "Ball at third sequence position; timestamp 2 seconds.",
+        "bytes": 9106,
+        "sha256": "01361c81ddbc84e7732b2f607159792dbf6ca759aa315d7d1d02f5be9644d93b"
+      },
+      {
+        "file": "images/sequenceA_4.png",
+        "description": "Ball at fourth sequence position; timestamp 3 seconds.",
+        "bytes": 9134,
+        "sha256": "2332569c9beeb2d9e8b1e5b9e7712fe78b679bcb47a975511761ac9454aa6370"
+      },
+      {
+        "file": "images/sequenceA_5.png",
+        "description": "Ball at fifth sequence position; timestamp 4 seconds.",
+        "bytes": 9113,
+        "sha256": "4ad3223a9dc595934ebed92e6d5169b58ef3df3fc2d4b3c0357cd7169ddf9630"
+      },
+      {
+        "file": "images/sequenceA_6.png",
+        "description": "Ball at final, far-right sequence position; timestamp 5 seconds.",
+        "bytes": 9097,
+        "sha256": "a237406a212c0e59ddab8ceda54c5abd34bd63dade297098de0e916079e0f091"
+      },
+      {
+        "file": "images/sequenceB_1.png",
+        "description": "Figure standing left of table; timestamp 0 seconds.",
+        "bytes": 18089,
+        "sha256": "be48e36d72772bf38ce550f28e9d720c3107bf85dcea34c65608aa6b7eb1c7b5"
+      },
+      {
+        "file": "images/sequenceB_2.png",
+        "description": "Figure in a walking pose closer to table; timestamp 1 second.",
+        "bytes": 17226,
+        "sha256": "2708cb16e97207316c81315c9f4a9abf2c6ef6e5d8436071d5316d5f5fc4707d"
+      },
+      {
+        "file": "images/sequenceB_3.png",
+        "description": "Figure reaching toward the table; timestamp 2 seconds.",
+        "bytes": 16987,
+        "sha256": "c2c8a75ef61db3c2d570900a51aa7304626196aa29664214087395ec05a041f6"
+      },
+      {
+        "file": "images/sequenceB_4.png",
+        "description": "Figure still reaching near the ball; timestamp 3 seconds.",
+        "bytes": 16975,
+        "sha256": "20373e4cbd4930681bea35e21513eb0469eeb7ca32baa8512403c601a81140bc"
+      },
+      {
+        "file": "images/sequenceB_5.png",
+        "description": "Figure holding a red ball; timestamp 4 seconds.",
+        "bytes": 19607,
+        "sha256": "ce68a982d011932155730949fa295e8eaacc2d5e3922824409fe86d493132513"
+      },
+      {
+        "file": "images/sequenceB_6.png",
+        "description": "Figure walking away while holding the ball; timestamp 5 seconds.",
+        "bytes": 19450,
+        "sha256": "1a1fd2e2000d94b91f406d44aad3f9d71298a7451c7be314286b493edb8695c0"
+      }
+    ]
+  },
+  "inference_attempts": [
+    {
+      "attempt_id": "individual_01",
+      "case_id": "image1_objects",
+      "status": "aborted_before_http_response",
+      "request_timestamp": "2026-10-30T16:21:00.022Z",
+      "abort_timestamp": "2026-10-30T16:21:25.493Z",
+      "request_to_abort_ms": 25471,
+      "request": {
+        "method": "POST",
+        "endpoint": "http://127.0.0.1:11434/api/generate",
+        "model": "qwen3.5:9b",
+        "input_file": "images/image1_objects.png",
+        "input_timestamp_seconds": 0,
+        "image_dimensions": "1024x768",
+        "stream": false,
+        "format": "json",
+        "think": false,
+        "keep_alive": "5m",
+        "options": {
+          "num_ctx": 2048,
+          "num_predict": 256,
+          "temperature": 0
+        },
+        "prompt": "Analyze this fully synthetic diagram-like image (not a photograph). Describe only visible evidence. Identify the person-like figure, table, red ball, blue box, and chair if visible; state approximate left/right relations. Do not infer identity, intent, or details not shown. Return ONLY JSON with exactly these top-level keys: model, analysis_type, observations, limitations. Set model to \"qwen3.5:9b\" and analysis_type to \"frame\". observations must be an array with one object containing exactly start_timestamp, end_timestamp, event, objects, actions, evidence_frames, confidence, reasoning. Use numeric 0 for both timestamps, concise strings, arrays of strings, evidence_frames [\"image1_objects\"], and confidence null. Mention uncertainty or omitted/ambiguous objects in limitations. No markdown."
+      },
+      "http_status": null,
+      "raw_http_body": null,
+      "raw_model_response_exact": null,
+      "json_schema_validation": "not_run_no_response",
+      "evaluation_scores": null,
+      "memory_guard": {
+        "minimum_mem_available_bytes": 2147483648,
+        "checked_before_request": true,
+        "sampling_interval_ms": 1000,
+        "aborted": true,
+        "reason": "MemAvailable fell below 2 GiB at 2103181312 bytes."
+      },
+      "memory_samples": [
+        {"elapsed_ms":1002,"mem_available_bytes":5033713664,"swap_free_bytes":4294316032},
+        {"elapsed_ms":2002,"mem_available_bytes":4783779840,"swap_free_bytes":4294316032},
+        {"elapsed_ms":3003,"mem_available_bytes":4884078592,"swap_free_bytes":4294316032},
+        {"elapsed_ms":4004,"mem_available_bytes":4857704448,"swap_free_bytes":4294316032},
+        {"elapsed_ms":5004,"mem_available_bytes":4698304512,"swap_free_bytes":4294316032},
+        {"elapsed_ms":6005,"mem_available_bytes":4708155392,"swap_free_bytes":4294316032},
+        {"elapsed_ms":7007,"mem_available_bytes":4563542016,"swap_free_bytes":4294316032},
+        {"elapsed_ms":8007,"mem_available_bytes":4531707904,"swap_free_bytes":4294316032},
+        {"elapsed_ms":9009,"mem_available_bytes":4469616640,"swap_free_bytes":4228481024},
+        {"elapsed_ms":10009,"mem_available_bytes":4395913216,"swap_free_bytes":4228481024},
+        {"elapsed_ms":11010,"mem_available_bytes":4244725760,"swap_free_bytes":4228485120},
+        {"elapsed_ms":12011,"mem_available_bytes":3924672512,"swap_free_bytes":4228489216},
+        {"elapsed_ms":13012,"mem_available_bytes":3601334272,"swap_free_bytes":4228493312},
+        {"elapsed_ms":14013,"mem_available_bytes":3530108928,"swap_free_bytes":4228493312},
+        {"elapsed_ms":15014,"mem_available_bytes":3363196928,"swap_free_bytes":4228497408},
+        {"elapsed_ms":16015,"mem_available_bytes":3369275392,"swap_free_bytes":4228497408},
+        {"elapsed_ms":17016,"mem_available_bytes":3246530560,"swap_free_bytes":4228501504},
+        {"elapsed_ms":18017,"mem_available_bytes":3056193536,"swap_free_bytes":4228501504},
+        {"elapsed_ms":19018,"mem_available_bytes":2686271488,"swap_free_bytes":4226433024},
+        {"elapsed_ms":20019,"mem_available_bytes":2859483136,"swap_free_bytes":4226367488},
+        {"elapsed_ms":21020,"mem_available_bytes":2667257856,"swap_free_bytes":4221542400},
+        {"elapsed_ms":22021,"mem_available_bytes":2411978752,"swap_free_bytes":4219645952},
+        {"elapsed_ms":23022,"mem_available_bytes":2289078272,"swap_free_bytes":4219645952},
+        {"elapsed_ms":24022,"mem_available_bytes":2170900480,"swap_free_bytes":4219645952},
+        {"elapsed_ms":25023,"mem_available_bytes":2103181312,"swap_free_bytes":4213092352}
+      ],
+      "memory_after_abort_handling": {
+        "mem_available_bytes": 2203377664,
+        "swap_free_bytes": 4120870912
+      },
+      "post_request_state": {
+        "ollama_ps_empty": true,
+        "ollama_daemon_remained_running": true,
+        "model_runner_peak_rss": null
+      },
+      "error": "Request canceled by the client memory guard before an HTTP response was received."
+    }
+  ],
+  "coverage": {
+    "individual_image_requests_allowed": 4,
+    "individual_image_requests_attempted": 1,
+    "individual_image_requests_completed": 0,
+    "individual_image_requests_not_attempted": 3,
+    "sequence_requests_allowed": 2,
+    "sequence_requests_attempted": 0,
+    "sequence_requests_completed": 0,
+    "sequence_requests_not_attempted": 2,
+    "maximum_frames_per_sequence": 6,
+    "maximum_longest_image_dimension": 1024,
+    "accuracy_scores_assigned": false,
+    "reason_for_early_stop": "The first request crossed the explicit MemAvailable < 2 GiB abort threshold."
+  },
+  "nonclaims": [
+    "No model response or visual accuracy result was obtained.",
+    "No sequence or temporal inference was run.",
+    "No JSON output or timestamp grounding was validated.",
+    "The 25471 ms interval is time-to-abort, not inference latency.",
+    "No conclusion about quality on a higher-memory machine is supported."
+  ]
+}

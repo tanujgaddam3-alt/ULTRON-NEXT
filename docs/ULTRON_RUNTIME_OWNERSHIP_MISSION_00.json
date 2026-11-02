@@ -1,0 +1,582 @@
+{
+  "schema_version": 1,
+  "report": "ULTRON Runtime Ownership - Mission 00",
+  "investigation_at": "2026-10-27T19:42:27.674+05:30",
+  "observation_method": {
+    "read_only": true,
+    "listener_artifact_snapshot_at_utc": "2026-10-27T14:12:01.615Z",
+    "process_pair_started_at_utc": "2026-10-27T14:12:27.674Z",
+    "process_source": "/proc",
+    "listener_source": [
+      "/proc/net/tcp",
+      "/proc/net/unix",
+      "/proc/<pid>/fd"
+    ],
+    "state_path_checked": "/home/ultron/.local/state/ultron/interface-launcher",
+    "process_samples": 2,
+    "sample_interval_ms_approximately": 500,
+    "probe_corrections": [
+      "An initial stability-result formatter omitted candidate labels; a corrected process-pair check confirmed all five candidates remained stable.",
+      "A combined state comparison initially keyed records by numeric PID rather than service name; the corrected service-name keyed comparison confirmed all four state-record matches."
+    ],
+    "command_line_output": "Only allowlisted manager/service identity tokens were recorded; raw arguments were not reported.",
+    "environment_inspected": "Only the XDG_STATE_HOME key of PID 6943 was checked; it was absent. No other environment keys were read.",
+    "application_tests_run": false,
+    "service_requests_made": false,
+    "authenticated_requests_made": false,
+    "live_databases_accessed": false,
+    "credentials_or_logs_read": false,
+    "processes_signalled_or_attached": false,
+    "files_or_permissions_modified": false,
+    "omega_contacted_or_modified": false
+  },
+  "disposition": "RECOVERY_GATE_NOT_PASSED",
+  "deployment_decision": "NO-GO",
+  "findings": [
+    {
+      "id": "runtime-process-identities",
+      "status": "VERIFIED",
+      "summary": "All historical manager/service PIDs remain present and matched the observed sanitized command identity, executable, working directory, and start ticks on two samples. The four child service PID/start_ticks/cwd records matched services.json and the current source identity predicates.",
+      "evidence": {
+        "manager": {
+          "pid": 6943,
+          "parent_pid": 5868,
+          "process_group": 6943,
+          "start_ticks": 13097,
+          "executable": "/usr/bin/python3.14",
+          "working_directory": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL",
+          "command_identity": [
+            "scripts/ultron_service_manager.py",
+            "start"
+          ],
+          "identity_tuple_stable_on_second_sample": true,
+          "state_record": null
+        },
+        "services": [
+          {
+            "name": "gateway",
+            "pid": 6970,
+            "parent_pid": 6943,
+            "process_group": 6970,
+            "start_ticks": 13117,
+            "executable": "/usr/bin/python3.14",
+            "working_directory": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL",
+            "command_identity": [
+              "-m",
+              "ultron.application.runtime.service_entrypoint"
+            ],
+            "state_record_pid_start_cwd_match": true,
+            "source_identity_predicates_match": true,
+            "identity_tuple_stable_on_second_sample": true
+          },
+          {
+            "name": "frontend",
+            "pid": 7065,
+            "parent_pid": 6943,
+            "process_group": 7065,
+            "start_ticks": 13349,
+            "executable": "/usr/bin/python3.14",
+            "working_directory": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL",
+            "command_identity": [
+              "-m",
+              "http.server",
+              "8000",
+              "--bind 127.0.0.1",
+              "--directory interface"
+            ],
+            "state_record_pid_start_cwd_match": true,
+            "source_identity_predicates_match": true,
+            "identity_tuple_stable_on_second_sample": true
+          },
+          {
+            "name": "auth",
+            "pid": 7071,
+            "parent_pid": 6943,
+            "process_group": 7071,
+            "start_ticks": 13380,
+            "executable": "/usr/bin/python3.14",
+            "working_directory": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL",
+            "command_identity": [
+              "-m",
+              "ultron.application.runtime.local_auth_helper",
+              "serve"
+            ],
+            "state_record_pid_start_cwd_match": true,
+            "source_identity_predicates_match": true,
+            "identity_tuple_stable_on_second_sample": true
+          },
+          {
+            "name": "voice",
+            "pid": 7075,
+            "parent_pid": 6943,
+            "process_group": 7075,
+            "start_ticks": 13411,
+            "executable": "/usr/bin/python3.14",
+            "working_directory": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL",
+            "command_identity": [
+              "-m",
+              "ultron.voice.server",
+              "--port 8765"
+            ],
+            "state_record_pid_start_cwd_match": true,
+            "source_identity_predicates_match": true,
+            "identity_tuple_stable_on_second_sample": true
+          }
+        ],
+        "expected_service_executable": "/usr/bin/python3.14",
+        "state_file": {
+          "path": "/home/ultron/.local/state/ultron/interface-launcher/services.json",
+          "exists": true,
+          "mode": "0600",
+          "owner_uid": 1000,
+          "selected_fields_read": [
+            "service name",
+            "pid",
+            "start_ticks",
+            "cwd"
+          ]
+        },
+        "state_directory": {
+          "path": "/home/ultron/.local/state/ultron/interface-launcher",
+          "exists": true,
+          "mode": "0700",
+          "owner_uid": 1000
+        }
+      },
+      "limitation": "Process identity and record matches establish observed identity, not by themselves supervisory ownership or live Popen-handle/control authority."
+    },
+    {
+      "id": "historical-observation-recheck",
+      "status": "VERIFIED",
+      "summary": "All five previously reported PIDs remain present. None of the historical PID observations was contradicted by this snapshot; earlier application-readiness results remain historical and were not repeated.",
+      "historical_pids": {
+        "manager": 6943,
+        "gateway": 6970,
+        "frontend": 7065,
+        "auth": 7071,
+        "voice": 7075
+      },
+      "historical_facts_no_longer_holding": [],
+      "historical_readiness_promoted_to_current": false
+    },
+    {
+      "id": "manager-lease-and-control",
+      "status": "VERIFIED",
+      "summary": "Expected lease and control socket are absent at the current default state path. No matching manager file descriptor or Unix listener was found for either expected path. No control request was attempted.",
+      "state_directory": "/home/ultron/.local/state/ultron/interface-launcher",
+      "xdg_state_home_override_present": false,
+      "lease": {
+        "path": "/home/ultron/.local/state/ultron/interface-launcher/manager.lease",
+        "exists": false,
+        "error": "ENOENT",
+        "matching_manager_fd": false
+      },
+      "control_socket": {
+        "path": "/home/ultron/.local/state/ultron/interface-launcher/manager.sock",
+        "exists": false,
+        "error": "ENOENT",
+        "matching_manager_fd": false,
+        "unix_listener_at_path": false
+      },
+      "manager_standard_streams": {
+        "stdin": "/dev/pts/1",
+        "stdout": "/dev/pts/1",
+        "stderr": "/dev/pts/1",
+        "terminal_owner_or_availability": "UNKNOWN"
+      }
+    },
+    {
+      "id": "observed-topology",
+      "status": "PARTIALLY_VERIFIED",
+      "summary": "Each recorded service is a direct child of PID 6943 and each service process group equals its PID; this matches the expected topology. A process parent relationship does not prove manager ownership.",
+      "manager_pid": 6943,
+      "service_pids": [
+        6970,
+        7065,
+        7071,
+        7075
+      ],
+      "missing_evidence": [
+        "Manager-held Popen handle ownership cannot be established from the passive observation.",
+        "Original manager owner/startup session is not established.",
+        "The manager lease and control socket are absent."
+      ]
+    },
+    {
+      "id": "passive-listeners",
+      "status": "PARTIALLY_VERIFIED",
+      "summary": "Passive kernel listener records map all configured loopback listeners to the corresponding recorded service process PIDs.",
+      "listeners": [
+        {
+          "service": "gateway",
+          "address": "127.0.0.1",
+          "port": 8080,
+          "pid": 6970,
+          "application_readiness": "UNVERIFIED"
+        },
+        {
+          "service": "frontend",
+          "address": "127.0.0.1",
+          "port": 8000,
+          "pid": 7065,
+          "application_readiness": "UNVERIFIED"
+        },
+        {
+          "service": "auth",
+          "address": "127.0.0.1",
+          "port": 8081,
+          "pid": 7071,
+          "application_readiness": "UNVERIFIED"
+        },
+        {
+          "service": "voice",
+          "address": "127.0.0.1",
+          "port": 8765,
+          "pid": 7075,
+          "application_readiness": "UNVERIFIED"
+        }
+      ],
+      "readiness_probes_performed": false,
+      "authenticated_control_relationship": "BLOCKED"
+    },
+    {
+      "id": "manager-ownership",
+      "status": "BLOCKED",
+      "summary": "Current supervisory ownership is not established. Manager process, child parentage, and state records match, but the expected lifetime lease/control socket are absent and manager-held process handles are not observable.",
+      "cause": "UNRESOLVED",
+      "safe_conclusion": "Do not start a competing manager or infer ownership transfer."
+    },
+    {
+      "id": "loaded-source-identity",
+      "status": "UNVERIFIED",
+      "summary": "The current on-disk manager source hash matches the prior audit, and the manager command references its path, but no evidence attests the source bytes already loaded by the process.",
+      "source_path": "scripts/ultron_service_manager.py",
+      "current_sha256": "b9a02815bf1d25679fa360fe04c0abcb8979b67dba99bab889af035878d1de97",
+      "prior_audit_sha256_matches": true,
+      "manager_executable": "/usr/bin/python3.14",
+      "manager_command_references_script_path": true,
+      "loaded_source_association": "UNVERIFIED"
+    },
+    {
+      "id": "supported-handoff",
+      "status": "VERIFIED",
+      "summary": "No supported manager-to-manager handoff or live process-adoption procedure is implemented in the inspected source/runbook. The manager source rejects adoption absent a validated transfer, while the runbook says handoff is not implemented.",
+      "handoff_implemented": false,
+      "adoption_supported": false,
+      "relevant_source": "scripts/ultron_service_manager.py",
+      "relevant_source_locations": [
+        "lines 302-335",
+        "lines 677-696",
+        "lines 1660-1680"
+      ],
+      "runbook": "docs/RUNTIME_OPERATIONS.md",
+      "runbook_location": "lines 217-263",
+      "control_protocol": {
+        "transport": "owner-only Unix stream socket",
+        "socket_path": "$XDG_STATE_HOME/ultron/interface-launcher/manager.sock or ~/.local/state/ultron/interface-launcher/manager.sock",
+        "peer_check": "SO_PEERCRED UID",
+        "request": {
+          "operation": "restart-auth",
+          "operationId_pattern": "[A-Za-z0-9._:-]{1,128}",
+          "line_limit_bytes": 4096
+        },
+        "manager_handoff_operation": "NOT_IMPLEMENTED"
+      }
+    },
+    {
+      "id": "test-evidence",
+      "status": "PARTIALLY_VERIFIED",
+      "summary": "Relevant test implementations and prior audit result records were inspected. No tests were run in this mission; test fixtures do not establish current live ownership or loaded source identity.",
+      "tests_run_this_mission": false,
+      "historical_results_not_rerun": [
+        {
+          "scope": "tests/runtime/test_service_manager.py",
+          "reported_result": "33 passed, 4 subtests passed; 0 failures; 0 skipped",
+          "evidence_file": "docs/ULTRON_RECOVERY_READINESS.json"
+        },
+        {
+          "scope": "tests/runtime/test_maintenance_transition.py tests/runtime/test_release_bundle.py tests/runtime/test_sqlite_backup.py",
+          "reported_result": "19 passed; 0 failures; 0 skipped",
+          "evidence_file": "docs/ULTRON_RECOVERY_READINESS.json"
+        }
+      ],
+      "coverage": [
+        {
+          "topic": "lease exclusivity, duplicate manager and socket initialization after service readiness",
+          "tests": [
+            "tests/runtime/test_service_manager.py::test_manager_lease_is_exclusive_and_control_schema_is_bounded",
+            "tests/runtime/test_service_manager.py::test_control_channel_success_opens_socket_after_services_are_ready"
+          ],
+          "status": "VERIFIED"
+        },
+        {
+          "topic": "missing lease/socket and refusal to adopt recorded live service",
+          "tests": [
+            "tests/runtime/test_service_manager.py::test_legacy_manager_without_lease_or_socket_blocks_new_owner",
+            "tests/runtime/test_service_manager.py::test_separate_manager_refuses_to_adopt_recorded_process_without_transfer"
+          ],
+          "status": "VERIFIED"
+        },
+        {
+          "topic": "stale PID and process-start identity",
+          "tests": [
+            "tests/runtime/test_service_manager.py::test_stale_pid_record_is_removed_without_signalling_pid",
+            "tests/runtime/test_service_manager.py::test_stale_helper_start_identity_is_rejected_without_signal"
+          ],
+          "status": "VERIFIED"
+        },
+        {
+          "topic": "interrupted recovery, ambiguous process identity and rollback",
+          "tests": [
+            "tests/runtime/test_service_manager.py::test_interrupted_candidate_is_identity_checked_and_safely_rolled_back",
+            "tests/runtime/test_service_manager.py::test_interrupted_ambiguous_candidate_is_never_signalled_or_adopted",
+            "tests/runtime/test_service_manager.py::test_control_rollback_never_signals_ambiguous_child_and_blocks_next_owner"
+          ],
+          "status": "VERIFIED"
+        },
+        {
+          "topic": "unexpected helper crash recovery",
+          "tests": [
+            "tests/runtime/test_service_manager.py::test_unexpected_auth_crash_keeps_existing_stack_recovery_behavior"
+          ],
+          "status": "VERIFIED"
+        },
+        {
+          "topic": "journal ordering, interruption and isolated maintenance rollback",
+          "tests": [
+            "tests/runtime/test_maintenance_transition.py::test_maintenance_journal_requires_ordered_evidence_and_retains_interruption",
+            "tests/runtime/test_maintenance_transition.py::test_maintenance_journal_blocks_commit_after_failure_and_pre_stop_abort",
+            "tests/runtime/test_maintenance_transition.py::test_isolated_maintenance_stops_then_starts_exactly_one_manager_and_preserves_cre_data",
+            "tests/runtime/test_maintenance_transition.py::test_failed_new_manager_readiness_rolls_back_only_new_fixture_services"
+          ],
+          "status": "VERIFIED",
+          "authorization_test_gap": "Inspected tests verify journal ordering and failure states, not authentication or binding of an explicit human authorization."
+        },
+        {
+          "topic": "release artifact reproducibility, safe paths and tamper rejection",
+          "tests": [
+            "tests/runtime/test_release_bundle.py::test_explicit_release_bundle_is_reproducible_verifiable_and_restorable",
+            "tests/runtime/test_release_bundle.py::test_release_bundle_rejects_forbidden_or_unsafe_paths",
+            "tests/runtime/test_release_bundle.py::test_release_bundle_verification_rejects_member_tampering"
+          ],
+          "status": "VERIFIED"
+        },
+        {
+          "topic": "live manager handoff",
+          "tests": [],
+          "status": "NOT_APPLICABLE",
+          "gap": "No handoff implementation or test exists in the inspected scope."
+        }
+      ]
+    }
+  ],
+  "recovery_options": [
+    {
+      "option": "Recover control through the existing manager",
+      "status": "BLOCKED",
+      "implementation": "The manager's control channel supports only the explicit restart-auth operation; the current lease and socket are absent.",
+      "preconditions": [
+        "Verified current manager identity and source/release authority.",
+        "Manager owns the exclusive lease and exposes the owner-only control socket.",
+        "Service records and listener identities pass fresh checks."
+      ],
+      "human_authorization": "Explicit authorization is required before any live lifecycle action; authenticated configured operator session is required for helper restart.",
+      "evidence_required": [
+        "Fresh process identity snapshot.",
+        "Lease/socket ownership and protocol availability.",
+        "Operation-specific authorization and readiness plan."
+      ],
+      "risks": [
+        "Helper-only restart would disconnect helper clients temporarily.",
+        "A general recovery/shutdown operation is not present on the manager control protocol."
+      ],
+      "stop_conditions": [
+        "Lease/socket absent or ambiguous.",
+        "Source identity or owner is unknown.",
+        "Stale or mismatched process records."
+      ],
+      "executed": false
+    },
+    {
+      "option": "Documented manager handoff",
+      "status": "VERIFIED",
+      "implementation": "NOT_IMPLEMENTED",
+      "human_authorization": "A future implementation would require separate review and explicit operator approval.",
+      "evidence_required": [
+        "A versioned cooperative handoff protocol.",
+        "Tests for old-owner quiescence, exclusive lease transfer, verified child adoption/readiness, commit acknowledgement, and rollback."
+      ],
+      "risks": [
+        "Uncoordinated adoption can create competing supervisors or lose process control."
+      ],
+      "stop_conditions": [
+        "Any identity ambiguity.",
+        "No authenticated cooperation from the existing owner."
+      ],
+      "executed": false
+    },
+    {
+      "option": "Explicitly authorized maintenance window",
+      "status": "PARTIALLY_VERIFIED",
+      "implementation": "Documented procedure; isolated fixture tests exist; not run on the live stack.",
+      "preconditions": [
+        "Original manager terminal/session and owner identified.",
+        "Exact release and independently verified rollback package.",
+        "Protected live database backup plus separate restore verification, explicitly authorized.",
+        "Fresh process/source identity preflight.",
+        "Durable maintenance journal and exact stop/rollback plan.",
+        "Explicit human authorization for services, data, release IDs, time window, and operations."
+      ],
+      "human_authorization": "Required; no authorization was provided or exercised by this investigation.",
+      "evidence_required": [
+        "Current identity and source evidence.",
+        "Release and rollback hashes with restore evidence.",
+        "Protected backup and isolated restoration results.",
+        "Operator-approved maintenance plan and journal."
+      ],
+      "risks": [
+        "Planned service outage.",
+        "Data loss or extended outage if wrong process/release/recovery point is selected."
+      ],
+      "stop_conditions": [
+        "Original owner/terminal unavailable.",
+        "Any process identity or source mismatch.",
+        "Missing release, rollback, backup, restore, tests, or authorization."
+      ],
+      "executed": false
+    },
+    {
+      "option": "Manual operator intervention",
+      "status": "VERIFIED",
+      "implementation": "Required now because manager ownership and original owner remain unresolved.",
+      "preconditions": [
+        "Responsible system operator identifies the owner of the manager process attached to /dev/pts/1."
+      ],
+      "human_authorization": "Operator/system-owner action required; read-only ownership clarification only at this stage.",
+      "evidence_required": [
+        "Original startup terminal/session or authenticated owner/startup record.",
+        "Operator confirmation of whether a supported normal shutdown route is available."
+      ],
+      "risks": [
+        "No risk from read-only clarification; any subsequent maintenance has separate outage and data-recovery risks."
+      ],
+      "stop_conditions": [
+        "Cannot establish owner or original startup session.",
+        "Any ambiguity about process identity or requested action."
+      ],
+      "executed": false
+    }
+  ],
+  "operator_action_required_next": {
+    "status": "BLOCKED",
+    "action": "Identify the responsible owner of manager PID 6943 attached to /dev/pts/1, locate the original startup terminal/session, and confirm startup/ownership history through an authenticated operator record.",
+    "scope": "Read-only ownership clarification; not permission to send Ctrl+C, stop, start, adopt, restart, repair artifacts, or access databases.",
+    "if_unavailable": "Keep the stack untouched and escalate to the system owner for intervention.",
+    "recovery_gate_passed": false
+  },
+  "unresolved_questions": [
+    {
+      "question": "Who owns the original manager process and its /dev/pts/1 startup session?",
+      "status": "UNVERIFIED"
+    },
+    {
+      "question": "Why are manager.lease and manager.sock absent while the manager and recorded children remain live?",
+      "status": "UNVERIFIED"
+    },
+    {
+      "question": "Which source bytes/release revision are loaded in PID 6943?",
+      "status": "UNVERIFIED"
+    },
+    {
+      "question": "Are the services functionally ready and authenticated now?",
+      "status": "UNVERIFIED"
+    },
+    {
+      "question": "Does PID 6943 still hold the original Python Popen handles for the four services?",
+      "status": "UNVERIFIED"
+    }
+  ],
+  "evidence_paths": [
+    {
+      "path": "scripts/ultron_service_manager.py",
+      "locations": [
+        "76-89",
+        "278-286",
+        "302-390",
+        "393-530",
+        "532-585",
+        "635-653",
+        "677-696",
+        "826-835",
+        "1504-1530",
+        "1786-1850",
+        "1856-1905"
+      ]
+    },
+    {
+      "path": "tests/runtime/test_service_manager.py",
+      "locations": [
+        "186",
+        "234",
+        "477",
+        "733",
+        "766",
+        "987",
+        "1012",
+        "1043",
+        "1199",
+        "1260"
+      ]
+    },
+    {
+      "path": "tests/runtime/test_maintenance_transition.py",
+      "locations": [
+        "109",
+        "134",
+        "149",
+        "233"
+      ]
+    },
+    {
+      "path": "tests/runtime/test_release_bundle.py",
+      "locations": [
+        "14",
+        "63",
+        "73"
+      ]
+    },
+    {
+      "path": "docs/RUNTIME_OPERATIONS.md",
+      "locations": [
+        "158-215",
+        "217-263",
+        "264-365"
+      ]
+    },
+    {
+      "path": "ultron/application/runtime/system_intelligence.py",
+      "locations": [
+        "402-480"
+      ]
+    },
+    {
+      "path": "docs/ULTRON_RUNTIME_OWNERSHIP_AUDIT.md",
+      "locations": [
+        "1-110"
+      ]
+    },
+    {
+      "path": "docs/ULTRON_RECOVERY_READINESS.json",
+      "locations": [
+        "1-179"
+      ]
+    },
+    {
+      "path": "docs/ULTRON_BLOCKER_CLOSURE_PLAN.md",
+      "locations": [
+        "115-146"
+      ]
+    }
+  ],
+  "final_rule": "This report does not authorize or pass the recovery gate. Preserve the running stack. No automatic process-adoption workaround is acceptable."
+}

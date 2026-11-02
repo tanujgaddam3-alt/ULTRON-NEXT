@@ -1,0 +1,3065 @@
+{
+    "entities": [
+        {
+            "id": "7e3cac4e-f5b8-4986-8761-ad4b8d2565f5",
+            "name": "COMMAND",
+            "entity_type": "process",
+            "properties": {
+                "running": true
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:37.980936+00:00",
+            "updated_at": "2026-11-01 13:55:37.980945+00:00",
+            "active": true
+        },
+        {
+            "id": "c9ef44bc-51b4-4cde-b11d-2d3bffb2f5d9",
+            "name": "systemd",
+            "entity_type": "process",
+            "properties": {
+                "running": true
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:37.980969+00:00",
+            "updated_at": "2026-11-01 13:55:37.980972+00:00",
+            "active": true
+        },
+        {
+            "id": "6570a9b6-5997-48d8-b144-9b805759f785",
+            "name": "kthreadd",
+            "entity_type": "process",
+            "properties": {
+                "running": true
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:37.980986+00:00",
+            "updated_at": "2026-11-01 13:55:37.980989+00:00",
+            "active": true
+        },
+        {
+            "id": "b86bd94f-a52e-4d02-b362-13be7bf79015",
+            "name": "pool_workqueue_release",
+            "entity_type": "process",
+            "properties": {
+                "running": true
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:37.981002+00:00",
+            "updated_at": "2026-11-01 13:55:37.981004+00:00",
+            "active": true
+        },
+        {
+            "id": "a336f920-a2db-44bd-a404-7312184a843b",
+            "name": "kworker/R-rcu_gp",
+            "entity_type": "process",
+            "properties": {
+                "running": true
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:37.981016+00:00",
+            "updated_at": "2026-11-01 13:55:37.981019+00:00",
+            "active": true
+        },
+        {
+            "id": "78d38166-9790-44e3-84ad-2acecc76796c",
+            "name": "kworker/R-sync_wq",
+            "entity_type": "process",
+            "properties": {
+                "running": true
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:37.981054+00:00",
+            "updated_at": "2026-11-01 13:55:37.981057+00:00",
+            "active": true
+        },
+        {
+            "id": "18909e19-608b-426e-b540-f25403fb4b91",
+            "name": "kworker/R-kvfree_rcu_reclaim",
+            "entity_type": "process",
+            "properties": {
+                "running": true
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:37.981072+00:00",
+            "updated_at": "2026-11-01 13:55:37.981075+00:00",
+            "active": true
+        },
+        {
+            "id": "49e3ebfd-14cc-4d29-a8ca-2803eb16826d",
+            "name": "kworker/R-slub_flushwq",
+            "entity_type": "process",
+            "properties": {
+                "running": true
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:37.981087+00:00",
+            "updated_at": "2026-11-01 13:55:37.981090+00:00",
+            "active": true
+        },
+        {
+            "id": "85f1c29c-5f4b-4be5-849e-675e256a2ba4",
+            "name": "kworker/R-netns",
+            "entity_type": "process",
+            "properties": {
+                "running": true
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:37.981103+00:00",
+            "updated_at": "2026-11-01 13:55:37.981106+00:00",
+            "active": true
+        },
+        {
+            "id": "5d984bb1-1105-46bb-9f8d-d485b447c82d",
+            "name": "kworker/0:0H-kblockd",
+            "entity_type": "process",
+            "properties": {
+                "running": true
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:37.981144+00:00",
+            "updated_at": "2026-11-01 13:55:37.981147+00:00",
+            "active": true
+        },
+        {
+            "id": "c7a36cf5-1912-478a-90ac-6234e5856873",
+            "name": "kworker/0:1-events",
+            "entity_type": "process",
+            "properties": {
+                "running": true
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:37.981160+00:00",
+            "updated_at": "2026-11-01 13:55:37.981161+00:00",
+            "active": true
+        },
+        {
+            "id": "2be1c235-784f-4683-a51c-e99ab92eb549",
+            "name": "kworker/R-mm_percpu_wq",
+            "entity_type": "process",
+            "properties": {
+                "running": true
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:37.981174+00:00",
+            "updated_at": "2026-11-01 13:55:37.981177+00:00",
+            "active": true
+        },
+        {
+            "id": "2a5271ce-3f8b-4aa3-be5c-c0a6bf555f55",
+            "name": "ksoftirqd/0",
+            "entity_type": "process",
+            "properties": {
+                "running": true
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:37.981188+00:00",
+            "updated_at": "2026-11-01 13:55:37.981190+00:00",
+            "active": true
+        },
+        {
+            "id": "22ef7ae6-ea4b-4755-a718-c3bf5ba53625",
+            "name": "rcu_preempt",
+            "entity_type": "process",
+            "properties": {
+                "running": true
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:37.981199+00:00",
+            "updated_at": "2026-11-01 13:55:37.981201+00:00",
+            "active": true
+        },
+        {
+            "id": "3804b103-16ec-4fab-8872-b33ca93ae97d",
+            "name": "rcu_exp_par_gp_kthread_worker/0",
+            "entity_type": "process",
+            "properties": {
+                "running": true
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:37.981210+00:00",
+            "updated_at": "2026-11-01 13:55:37.981212+00:00",
+            "active": true
+        },
+        {
+            "id": "a095a978-d451-4bd4-be27-15594c31570a",
+            "name": "rcu_exp_gp_kthread_worker",
+            "entity_type": "process",
+            "properties": {
+                "running": true
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:37.981221+00:00",
+            "updated_at": "2026-11-01 13:55:37.981223+00:00",
+            "active": true
+        },
+        {
+            "id": "d91ecd61-db2c-42de-8435-0e2b0ff7c64d",
+            "name": "migration/0",
+            "entity_type": "process",
+            "properties": {
+                "running": true
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:37.981232+00:00",
+            "updated_at": "2026-11-01 13:55:37.981234+00:00",
+            "active": true
+        },
+        {
+            "id": "c1c5deea-61a9-4a22-9e24-89d6a7a02081",
+            "name": "kprobe-optimizer",
+            "entity_type": "process",
+            "properties": {
+                "running": true
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:37.981244+00:00",
+            "updated_at": "2026-11-01 13:55:37.981246+00:00",
+            "active": true
+        },
+        {
+            "id": "9268c35c-9e3c-4bcd-aae8-f12b7fdef766",
+            "name": "idle_inject/0",
+            "entity_type": "process",
+            "properties": {
+                "running": true
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:37.981254+00:00",
+            "updated_at": "2026-11-01 13:55:37.981256+00:00",
+            "active": true
+        },
+        {
+            "id": "12561d6f-54b1-421c-98e4-a4d984a7136e",
+            "name": "cpuhp/0",
+            "entity_type": "process",
+            "properties": {
+                "running": true
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:37.981265+00:00",
+            "updated_at": "2026-11-01 13:55:37.981268+00:00",
+            "active": true
+        },
+        {
+            "id": "e29d37d0-749c-4cef-b330-248fbd38ebb8",
+            "name": "ruff_report.json",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ruff_report.json",
+                "extension": ".json"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.061991+00:00",
+            "updated_at": "2026-11-01 13:55:38.061998+00:00",
+            "active": true
+        },
+        {
+            "id": "bc7099b9-5019-48e4-a5db-28b60b3a9e6f",
+            "name": "ultron_combined_acceptance_test.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron_combined_acceptance_test.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.062016+00:00",
+            "updated_at": "2026-11-01 13:55:38.062018+00:00",
+            "active": true
+        },
+        {
+            "id": "c1331292-1cf4-4e91-9dbd-d9aa3d6a864d",
+            "name": "ultron_decision_acceptance_test.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron_decision_acceptance_test.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.062024+00:00",
+            "updated_at": "2026-11-01 13:55:38.062026+00:00",
+            "active": true
+        },
+        {
+            "id": "08b1cd71-7126-45f4-a807-4486bb4d5744",
+            "name": "pyproject.toml",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/pyproject.toml",
+                "extension": ".toml"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.062045+00:00",
+            "updated_at": "2026-11-01 13:55:38.062047+00:00",
+            "active": true
+        },
+        {
+            "id": "5a6e0121-8184-4093-8d0f-16e9165670e0",
+            "name": "main.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/main.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.062053+00:00",
+            "updated_at": "2026-11-01 13:55:38.062054+00:00",
+            "active": true
+        },
+        {
+            "id": "ba95e1f3-3f43-46cd-841e-a12422f92119",
+            "name": "financial_research.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/financial_research.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.062060+00:00",
+            "updated_at": "2026-11-01 13:55:38.062062+00:00",
+            "active": true
+        },
+        {
+            "id": "34f776b6-653d-4692-8404-ef5ba9511108",
+            "name": "system_monitor.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/system_monitor.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.062069+00:00",
+            "updated_at": "2026-11-01 13:55:38.062071+00:00",
+            "active": true
+        },
+        {
+            "id": "f5fde842-e659-4420-b185-1254c4e39c30",
+            "name": "ultron_guarded_execution_integration_test.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron_guarded_execution_integration_test.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.062077+00:00",
+            "updated_at": "2026-11-01 13:55:38.062079+00:00",
+            "active": true
+        },
+        {
+            "id": "170729e4-c618-4832-9c6d-a68ca4f85c82",
+            "name": "apply_patch.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/apply_patch.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.062085+00:00",
+            "updated_at": "2026-11-01 13:55:38.062086+00:00",
+            "active": true
+        },
+        {
+            "id": "f1145d0a-fdde-45e1-be5d-bbbda3eeada1",
+            "name": "learn.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/learn.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.062091+00:00",
+            "updated_at": "2026-11-01 13:55:38.062093+00:00",
+            "active": true
+        },
+        {
+            "id": "485b9d59-a6d3-407a-b797-bc6c79b5cf26",
+            "name": "financial_main.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/financial_main.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.062103+00:00",
+            "updated_at": "2026-11-01 13:55:38.062104+00:00",
+            "active": true
+        },
+        {
+            "id": "74db93d9-23af-4a41-a6cb-94fedb4de9d2",
+            "name": ".atlas-cache.json",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/.atlas-cache.json",
+                "extension": ".json"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.062111+00:00",
+            "updated_at": "2026-11-01 13:55:38.062112+00:00",
+            "active": true
+        },
+        {
+            "id": "20fbcdd6-f8c2-4182-b9e7-0ba9e92cfb7a",
+            "name": "test_generated.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/test_generated.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.062119+00:00",
+            "updated_at": "2026-11-01 13:55:38.062121+00:00",
+            "active": true
+        },
+        {
+            "id": "d69b8141-06b1-49fe-ae21-4a108144af80",
+            "name": "strategy_memory.json",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/data/strategy_memory.json",
+                "extension": ".json"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.062286+00:00",
+            "updated_at": "2026-11-01 13:55:38.062290+00:00",
+            "active": true
+        },
+        {
+            "id": "1ab26d4e-0162-456f-b5df-59cb2c17ab2d",
+            "name": "world.json",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/data/world.json",
+                "extension": ".json"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.062311+00:00",
+            "updated_at": "2026-11-01 13:55:38.062315+00:00",
+            "active": true
+        },
+        {
+            "id": "ea6210c0-2282-4fa1-a574-7822166a8a8a",
+            "name": "improvement_history.json",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/data/improvement_history.json",
+                "extension": ".json"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.062329+00:00",
+            "updated_at": "2026-11-01 13:55:38.062332+00:00",
+            "active": true
+        },
+        {
+            "id": "571c66d6-0847-49d1-846c-f39218e48a8e",
+            "name": "capabilities.json",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/data/capabilities.json",
+                "extension": ".json"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.062345+00:00",
+            "updated_at": "2026-11-01 13:55:38.062347+00:00",
+            "active": true
+        },
+        {
+            "id": "f6f8ee13-7f5a-4621-9ecf-86dec4e3aa65",
+            "name": "experiences.json",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/data/experiences.json",
+                "extension": ".json"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.062360+00:00",
+            "updated_at": "2026-11-01 13:55:38.062362+00:00",
+            "active": true
+        },
+        {
+            "id": "360beda1-d7e2-4e5f-9884-b99aef4ec522",
+            "name": "training_report.json",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/data/financial/research/nifty50_baseline/training_report.json",
+                "extension": ".json"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.062644+00:00",
+            "updated_at": "2026-11-01 13:55:38.062647+00:00",
+            "active": true
+        },
+        {
+            "id": "e7014b99-9a72-4269-8950-17059cfd5e1f",
+            "name": "groq_test.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/groq-test/groq_test.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.062849+00:00",
+            "updated_at": "2026-11-01 13:55:38.062851+00:00",
+            "active": true
+        },
+        {
+            "id": "5d9c2a24-f476-4710-bd02-443510bcb987",
+            "name": "cre_schema_validator.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/scripts/cre_schema_validator.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.062999+00:00",
+            "updated_at": "2026-11-01 13:55:38.063002+00:00",
+            "active": true
+        },
+        {
+            "id": "c01779c7-7a55-41a7-84f6-a8520c36948e",
+            "name": "verify_interface_auth.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/scripts/verify_interface_auth.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063016+00:00",
+            "updated_at": "2026-11-01 13:55:38.063019+00:00",
+            "active": true
+        },
+        {
+            "id": "4d3bfb15-e68d-44e2-872f-94124aa64506",
+            "name": "run_ultron_tradingview_webhook.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/scripts/run_ultron_tradingview_webhook.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063048+00:00",
+            "updated_at": "2026-11-01 13:55:38.063052+00:00",
+            "active": true
+        },
+        {
+            "id": "15ac0ad4-3f6d-4c0c-ac4b-ea5eb1de554f",
+            "name": "cre_migration_evidence_packet.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/scripts/cre_migration_evidence_packet.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063065+00:00",
+            "updated_at": "2026-11-01 13:55:38.063068+00:00",
+            "active": true
+        },
+        {
+            "id": "c14e5363-b918-4251-8d18-6e0e7eae1cac",
+            "name": "ultron_release_bundle.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/scripts/ultron_release_bundle.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063080+00:00",
+            "updated_at": "2026-11-01 13:55:38.063083+00:00",
+            "active": true
+        },
+        {
+            "id": "10747a77-391a-4ef9-9f6e-a5477cfebfac",
+            "name": "validate_alpaca_readonly.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/scripts/validate_alpaca_readonly.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063103+00:00",
+            "updated_at": "2026-11-01 13:55:38.063105+00:00",
+            "active": true
+        },
+        {
+            "id": "cfe3474f-615e-47f2-beb9-3e552b97afaf",
+            "name": "ultron_sqlite_backup.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/scripts/ultron_sqlite_backup.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063116+00:00",
+            "updated_at": "2026-11-01 13:55:38.063118+00:00",
+            "active": true
+        },
+        {
+            "id": "3a0a1461-7baa-4f93-bce9-93f74f65f777",
+            "name": "cre_approval_verifier.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/scripts/cre_approval_verifier.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063129+00:00",
+            "updated_at": "2026-11-01 13:55:38.063132+00:00",
+            "active": true
+        },
+        {
+            "id": "1b93b9c5-dc02-4848-b9cf-02ed71b5ad50",
+            "name": "fix_mutable_defaults.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/scripts/fix_mutable_defaults.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063144+00:00",
+            "updated_at": "2026-11-01 13:55:38.063146+00:00",
+            "active": true
+        },
+        {
+            "id": "b89cb1d0-491e-41e7-8687-a89d0155619c",
+            "name": "cre_writer_evidence.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/scripts/cre_writer_evidence.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063159+00:00",
+            "updated_at": "2026-11-01 13:55:38.063161+00:00",
+            "active": true
+        },
+        {
+            "id": "a41fc922-36ee-4c35-a4e4-709e15b329df",
+            "name": "ultron_maintenance_journal.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/scripts/ultron_maintenance_journal.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063174+00:00",
+            "updated_at": "2026-11-01 13:55:38.063177+00:00",
+            "active": true
+        },
+        {
+            "id": "1cef7a3c-58c4-4281-a02f-6639a2b235db",
+            "name": "run_ultron_autonomous_trading.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/scripts/run_ultron_autonomous_trading.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063188+00:00",
+            "updated_at": "2026-11-01 13:55:38.063190+00:00",
+            "active": true
+        },
+        {
+            "id": "60e2f337-c51e-4225-a41a-afeaa9888bd5",
+            "name": "ultron_service_manager.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/scripts/ultron_service_manager.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063201+00:00",
+            "updated_at": "2026-11-01 13:55:38.063204+00:00",
+            "active": true
+        },
+        {
+            "id": "58727db5-96da-46d6-ac59-446c9f45de3b",
+            "name": "__init__.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/__init__.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063263+00:00",
+            "updated_at": "2026-11-01 13:55:38.063265+00:00",
+            "active": true
+        },
+        {
+            "id": "fed68669-2400-4ee0-a61a-329ac6519090",
+            "name": "chat.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/chat.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063271+00:00",
+            "updated_at": "2026-11-01 13:55:38.063273+00:00",
+            "active": true
+        },
+        {
+            "id": "0a70e055-bca9-4744-a913-d91da585b861",
+            "name": "manager.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/manager.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063417+00:00",
+            "updated_at": "2026-11-01 13:55:38.063419+00:00",
+            "active": true
+        },
+        {
+            "id": "22c0e636-f2fa-4e58-85d9-933259715a14",
+            "name": "__init__.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/__init__.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063425+00:00",
+            "updated_at": "2026-11-01 13:55:38.063427+00:00",
+            "active": true
+        },
+        {
+            "id": "30cf0dcf-0c8d-4267-8e57-96e038ce3a48",
+            "name": "registry.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/registry.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063433+00:00",
+            "updated_at": "2026-11-01 13:55:38.063434+00:00",
+            "active": true
+        },
+        {
+            "id": "4331ddb6-567c-4fcf-b1c1-5b5aa3b1b7ec",
+            "name": "base.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/base.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063440+00:00",
+            "updated_at": "2026-11-01 13:55:38.063441+00:00",
+            "active": true
+        },
+        {
+            "id": "f2348951-3607-4c66-af91-14925d7e9b66",
+            "name": "skill.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/terminal/skill.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063520+00:00",
+            "updated_at": "2026-11-01 13:55:38.063522+00:00",
+            "active": true
+        },
+        {
+            "id": "53eb7b3b-9fea-4179-9299-dd1c1e58172e",
+            "name": "test_terminal_skill.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/terminal/tests/test_terminal_skill.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063543+00:00",
+            "updated_at": "2026-11-01 13:55:38.063545+00:00",
+            "active": true
+        },
+        {
+            "id": "ad1d38cd-237f-47fc-82cd-ae4ffbc402de",
+            "name": "skill.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/project/skill.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063561+00:00",
+            "updated_at": "2026-11-01 13:55:38.063563+00:00",
+            "active": true
+        },
+        {
+            "id": "216a13fe-9fbf-4821-9080-f31aaa1c7683",
+            "name": "analyzer.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/financial_analysis/analyzer.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063581+00:00",
+            "updated_at": "2026-11-01 13:55:38.063582+00:00",
+            "active": true
+        },
+        {
+            "id": "de11f314-2464-4eb5-b5a1-6005569a4bce",
+            "name": "skill.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/financial_analysis/skill.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063589+00:00",
+            "updated_at": "2026-11-01 13:55:38.063590+00:00",
+            "active": true
+        },
+        {
+            "id": "d54fcabf-3383-43fb-a344-9821fc85a609",
+            "name": "policy.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/security/policy.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063607+00:00",
+            "updated_at": "2026-11-01 13:55:38.063608+00:00",
+            "active": true
+        },
+        {
+            "id": "b190d5dd-61fe-4f4b-b19c-5e400c6a242e",
+            "name": "skill.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/self_awareness/skill.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063625+00:00",
+            "updated_at": "2026-11-01 13:55:38.063627+00:00",
+            "active": true
+        },
+        {
+            "id": "24327b4c-67cf-42ce-855f-8eb09154ac2c",
+            "name": "__init__.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/self_awareness/__init__.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063632+00:00",
+            "updated_at": "2026-11-01 13:55:38.063634+00:00",
+            "active": true
+        },
+        {
+            "id": "6302ad5b-9cd1-4c73-968c-61854896b3fe",
+            "name": "evolution.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/backtesting/evolution.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063655+00:00",
+            "updated_at": "2026-11-01 13:55:38.063657+00:00",
+            "active": true
+        },
+        {
+            "id": "cbaf6842-06ca-4e7d-9604-ff91b595fd1c",
+            "name": "strategy_generator.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/backtesting/strategy_generator.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063663+00:00",
+            "updated_at": "2026-11-01 13:55:38.063664+00:00",
+            "active": true
+        },
+        {
+            "id": "5d3fe883-7021-4cc6-867f-03d311f4045b",
+            "name": "evolution_engine.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/backtesting/evolution_engine.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063669+00:00",
+            "updated_at": "2026-11-01 13:55:38.063670+00:00",
+            "active": true
+        },
+        {
+            "id": "147aabe8-9d5f-4772-83e6-054272e5197e",
+            "name": "engine.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/backtesting/engine.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063676+00:00",
+            "updated_at": "2026-11-01 13:55:38.063677+00:00",
+            "active": true
+        },
+        {
+            "id": "efd6ca8b-dd83-46e7-8ee8-e4ff2f1fb96f",
+            "name": "evaluator.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/backtesting/evaluator.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063683+00:00",
+            "updated_at": "2026-11-01 13:55:38.063684+00:00",
+            "active": true
+        },
+        {
+            "id": "54f34424-b907-4824-9adc-09818bc85780",
+            "name": "skill.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/backtesting/skill.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063690+00:00",
+            "updated_at": "2026-11-01 13:55:38.063691+00:00",
+            "active": true
+        },
+        {
+            "id": "8c366306-4d5b-4c93-9cd3-3ca1f397cd05",
+            "name": "walk_forward.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/backtesting/walk_forward.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063697+00:00",
+            "updated_at": "2026-11-01 13:55:38.063698+00:00",
+            "active": true
+        },
+        {
+            "id": "a9e63e97-4e99-4d37-97b2-77533f21a0fe",
+            "name": "models.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/backtesting/models.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063704+00:00",
+            "updated_at": "2026-11-01 13:55:38.063705+00:00",
+            "active": true
+        },
+        {
+            "id": "a19a1cba-754b-408c-aab1-36066e94b8bb",
+            "name": "strategy_memory.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/backtesting/memory/strategy_memory.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063728+00:00",
+            "updated_at": "2026-11-01 13:55:38.063729+00:00",
+            "active": true
+        },
+        {
+            "id": "1432fd8d-2915-4c0b-831d-7d0eb92c9f35",
+            "name": "skill.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/improvement/skill.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063747+00:00",
+            "updated_at": "2026-11-01 13:55:38.063748+00:00",
+            "active": true
+        },
+        {
+            "id": "e914e8a9-bee7-43db-b24a-5f4e29340cd0",
+            "name": "skill.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/filesystem/skill.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063766+00:00",
+            "updated_at": "2026-11-01 13:55:38.063767+00:00",
+            "active": true
+        },
+        {
+            "id": "4854084f-1cfc-4fde-adc7-a88ff6a38242",
+            "name": "__init__.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/filesystem/__init__.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063773+00:00",
+            "updated_at": "2026-11-01 13:55:38.063774+00:00",
+            "active": true
+        },
+        {
+            "id": "52323ce2-cf6b-48f9-94e0-434d9c6d4a2a",
+            "name": "skill.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/voice/skill.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063790+00:00",
+            "updated_at": "2026-11-01 13:55:38.063791+00:00",
+            "active": true
+        },
+        {
+            "id": "8a45a690-68c3-40b0-9262-27f2352c473a",
+            "name": "skill.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/web/skill.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063806+00:00",
+            "updated_at": "2026-11-01 13:55:38.063808+00:00",
+            "active": true
+        },
+        {
+            "id": "d60f6a87-2750-4e40-8873-98fb60cf2f15",
+            "name": "__init__.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/web/__init__.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063813+00:00",
+            "updated_at": "2026-11-01 13:55:38.063815+00:00",
+            "active": true
+        },
+        {
+            "id": "63701008-12aa-42d7-9a9c-9b3e39d15309",
+            "name": "provider.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/market_data/provider.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063837+00:00",
+            "updated_at": "2026-11-01 13:55:38.063838+00:00",
+            "active": true
+        },
+        {
+            "id": "397461c6-4ab7-4c10-aa1c-639d8b50e347",
+            "name": "analyzer.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/market_data/analyzer.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063845+00:00",
+            "updated_at": "2026-11-01 13:55:38.063846+00:00",
+            "active": true
+        },
+        {
+            "id": "4f6b3857-64c1-4992-95bf-d736af03253f",
+            "name": "assets.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/market_data/assets.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063852+00:00",
+            "updated_at": "2026-11-01 13:55:38.063853+00:00",
+            "active": true
+        },
+        {
+            "id": "418b0a37-6fc7-4dee-9b3b-61ac45c2a6b6",
+            "name": "skill.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/market_data/skill.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063859+00:00",
+            "updated_at": "2026-11-01 13:55:38.063860+00:00",
+            "active": true
+        },
+        {
+            "id": "b45f3dab-7e10-4f12-9654-fb141d62443d",
+            "name": "models.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/market_data/models.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063867+00:00",
+            "updated_at": "2026-11-01 13:55:38.063868+00:00",
+            "active": true
+        },
+        {
+            "id": "61692eb0-1787-4ce1-bf66-03cc35e674b3",
+            "name": "company_provider.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/market_data/company_provider.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063874+00:00",
+            "updated_at": "2026-11-01 13:55:38.063875+00:00",
+            "active": true
+        },
+        {
+            "id": "bb9c651d-b505-4912-935d-93bd5d4a857c",
+            "name": "company.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/market_data/company.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063880+00:00",
+            "updated_at": "2026-11-01 13:55:38.063881+00:00",
+            "active": true
+        },
+        {
+            "id": "7d4d3311-279b-4dd4-aeb6-0fdffccf974a",
+            "name": "skill.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/vision/skill.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063899+00:00",
+            "updated_at": "2026-11-01 13:55:38.063899+00:00",
+            "active": true
+        },
+        {
+            "id": "cb9e9f9f-0f88-4554-8f0a-a41a90d7aa75",
+            "name": "skill.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/financial/skill.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063923+00:00",
+            "updated_at": "2026-11-01 13:55:38.063924+00:00",
+            "active": true
+        },
+        {
+            "id": "1d41e68d-3ff5-4777-8caa-19e54960f281",
+            "name": "__init__.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/financial/__init__.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063930+00:00",
+            "updated_at": "2026-11-01 13:55:38.063931+00:00",
+            "active": true
+        },
+        {
+            "id": "ad755348-59ec-4ea3-b9b0-a0fec6f899d5",
+            "name": "analyzer.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/risk_management/analyzer.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063949+00:00",
+            "updated_at": "2026-11-01 13:55:38.063950+00:00",
+            "active": true
+        },
+        {
+            "id": "794c879f-0470-4ec2-bef5-4788beab2e4d",
+            "name": "skill.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/risk_management/skill.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063956+00:00",
+            "updated_at": "2026-11-01 13:55:38.063958+00:00",
+            "active": true
+        },
+        {
+            "id": "8070d9da-eb19-4f7a-b67e-89c4098657a0",
+            "name": "skill.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/python/skill.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063975+00:00",
+            "updated_at": "2026-11-01 13:55:38.063977+00:00",
+            "active": true
+        },
+        {
+            "id": "af557ff6-3c61-415f-82c4-3038d6df743c",
+            "name": "__init__.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/python/__init__.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.063983+00:00",
+            "updated_at": "2026-11-01 13:55:38.063984+00:00",
+            "active": true
+        },
+        {
+            "id": "26211017-d475-4643-8a16-c21227c47c70",
+            "name": "skill.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/file/skill.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064000+00:00",
+            "updated_at": "2026-11-01 13:55:38.064001+00:00",
+            "active": true
+        },
+        {
+            "id": "0fd278db-20b0-447b-b755-72b2975265aa",
+            "name": "monitor.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/system/monitor.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064019+00:00",
+            "updated_at": "2026-11-01 13:55:38.064021+00:00",
+            "active": true
+        },
+        {
+            "id": "19c40f36-b58b-4513-b8e7-6a4c664b1f4a",
+            "name": "skill.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/system/skill.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064027+00:00",
+            "updated_at": "2026-11-01 13:55:38.064028+00:00",
+            "active": true
+        },
+        {
+            "id": "e80f12af-2597-4b2b-a875-299641f72c35",
+            "name": "__init__.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/system/__init__.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064052+00:00",
+            "updated_at": "2026-11-01 13:55:38.064053+00:00",
+            "active": true
+        },
+        {
+            "id": "eb2a830a-962c-4f50-b5c4-cb2dadcacf74",
+            "name": "app_resolver.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/system/app_resolver.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064061+00:00",
+            "updated_at": "2026-11-01 13:55:38.064063+00:00",
+            "active": true
+        },
+        {
+            "id": "bc86d2a1-dc05-4d24-bafe-5a4845fb3481",
+            "name": "skill.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/shell/skill.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064083+00:00",
+            "updated_at": "2026-11-01 13:55:38.064085+00:00",
+            "active": true
+        },
+        {
+            "id": "cce7cc06-a767-4213-b73e-84a8bb5189e3",
+            "name": "__init__.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/shell/__init__.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064091+00:00",
+            "updated_at": "2026-11-01 13:55:38.064093+00:00",
+            "active": true
+        },
+        {
+            "id": "325c7474-ef3f-45df-b9dc-f67941b0260c",
+            "name": "skill_loader.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/skills/loader/skill_loader.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064110+00:00",
+            "updated_at": "2026-11-01 13:55:38.064112+00:00",
+            "active": true
+        },
+        {
+            "id": "1bdac5c7-69d1-4b47-820c-a1d51f9b8b8e",
+            "name": "__init__.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/ai/__init__.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064130+00:00",
+            "updated_at": "2026-11-01 13:55:38.064132+00:00",
+            "active": true
+        },
+        {
+            "id": "9ca7daab-a2ab-4b70-94c2-81fe21ade9c1",
+            "name": "engine.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/ai/reasoning/engine.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064157+00:00",
+            "updated_at": "2026-11-01 13:55:38.064159+00:00",
+            "active": true
+        },
+        {
+            "id": "2b09ccf6-31b0-445d-ad84-9e26171eeee7",
+            "name": "__init__.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/ai/reasoning/__init__.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064165+00:00",
+            "updated_at": "2026-11-01 13:55:38.064166+00:00",
+            "active": true
+        },
+        {
+            "id": "7187d4ba-a18d-4c1e-856e-a8c1ccd366b2",
+            "name": "provider.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/ai/llm/provider.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064187+00:00",
+            "updated_at": "2026-11-01 13:55:38.064189+00:00",
+            "active": true
+        },
+        {
+            "id": "194dcd57-0355-49ff-8e46-fc8906695ff2",
+            "name": "ollama_provider.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/ai/llm/ollama_provider.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064195+00:00",
+            "updated_at": "2026-11-01 13:55:38.064196+00:00",
+            "active": true
+        },
+        {
+            "id": "e62b8fb9-bd81-428e-9f7f-fb30d8455245",
+            "name": "openai_provider.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/ai/llm/openai_provider.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064202+00:00",
+            "updated_at": "2026-11-01 13:55:38.064203+00:00",
+            "active": true
+        },
+        {
+            "id": "7af0ff53-4d80-4c83-b36e-dfdf8ba27f63",
+            "name": "__init__.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/ai/llm/__init__.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064209+00:00",
+            "updated_at": "2026-11-01 13:55:38.064210+00:00",
+            "active": true
+        },
+        {
+            "id": "6cbd091a-bad0-4409-a03d-33d29f717140",
+            "name": "base.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/ai/llm/base.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064216+00:00",
+            "updated_at": "2026-11-01 13:55:38.064218+00:00",
+            "active": true
+        },
+        {
+            "id": "b588ade8-2f81-4558-bcc2-6e5c2f6ed62b",
+            "name": "model.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/projects/model.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064241+00:00",
+            "updated_at": "2026-11-01 13:55:38.064243+00:00",
+            "active": true
+        },
+        {
+            "id": "a5e99e6f-e965-4cc3-b63d-1113e1f66d7e",
+            "name": "manager.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/projects/manager.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064250+00:00",
+            "updated_at": "2026-11-01 13:55:38.064251+00:00",
+            "active": true
+        },
+        {
+            "id": "d102a826-a600-4f99-b3a3-ddc697b746dc",
+            "name": "lifecycle.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/projects/lifecycle.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064257+00:00",
+            "updated_at": "2026-11-01 13:55:38.064258+00:00",
+            "active": true
+        },
+        {
+            "id": "13ca5005-7a1d-4135-a3a0-9de1cbbbbab2",
+            "name": "state.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/projects/state.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064264+00:00",
+            "updated_at": "2026-11-01 13:55:38.064265+00:00",
+            "active": true
+        },
+        {
+            "id": "853c8e9e-3ba2-4ae8-9512-02721b50ed16",
+            "name": "manager.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/projects/artifacts/manager.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064300+00:00",
+            "updated_at": "2026-11-01 13:55:38.064302+00:00",
+            "active": true
+        },
+        {
+            "id": "dd177f32-569a-4963-8928-d563f3494caf",
+            "name": "__init__.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/projects/builder/__init__.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064334+00:00",
+            "updated_at": "2026-11-01 13:55:38.064336+00:00",
+            "active": true
+        },
+        {
+            "id": "9cf1c587-5a09-4c4b-912b-5d7cbcd671d7",
+            "name": "builder.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/projects/builder/builder.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064344+00:00",
+            "updated_at": "2026-11-01 13:55:38.064346+00:00",
+            "active": true
+        },
+        {
+            "id": "7d9edbaa-d31d-4c03-be31-7ce1f3b8c2d9",
+            "name": "manager.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/projects/workspace/manager.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064368+00:00",
+            "updated_at": "2026-11-01 13:55:38.064370+00:00",
+            "active": true
+        },
+        {
+            "id": "a9bd73c5-35ae-43be-873a-1745c7ccb0df",
+            "name": "events.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/projects/events/events.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064392+00:00",
+            "updated_at": "2026-11-01 13:55:38.064394+00:00",
+            "active": true
+        },
+        {
+            "id": "b70f0db5-a3d6-4046-b4c0-9885e5fddc88",
+            "name": "sqlite.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/projects/repository/sqlite.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064416+00:00",
+            "updated_at": "2026-11-01 13:55:38.064418+00:00",
+            "active": true
+        },
+        {
+            "id": "8a4feeda-b0db-4670-bea0-88d4472bc37d",
+            "name": "base.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/projects/repository/base.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064426+00:00",
+            "updated_at": "2026-11-01 13:55:38.064427+00:00",
+            "active": true
+        },
+        {
+            "id": "518c0dbf-f15a-4838-a617-e7f26ac90f98",
+            "name": "traversal.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/reasoning/traversal.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064456+00:00",
+            "updated_at": "2026-11-01 13:55:38.064458+00:00",
+            "active": true
+        },
+        {
+            "id": "c786b85e-3aea-43a9-ba49-a8d53d5d668d",
+            "name": "relation_templates.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/reasoning/relation_templates.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064464+00:00",
+            "updated_at": "2026-11-01 13:55:38.064465+00:00",
+            "active": true
+        },
+        {
+            "id": "de5f832f-d280-40fe-92c8-9c01cbb61d94",
+            "name": "confidence.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/reasoning/confidence.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064470+00:00",
+            "updated_at": "2026-11-01 13:55:38.064472+00:00",
+            "active": true
+        },
+        {
+            "id": "89a4430b-1337-4ce5-a033-4ddd29a1f4df",
+            "name": "chain_summarizer.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/reasoning/chain_summarizer.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064476+00:00",
+            "updated_at": "2026-11-01 13:55:38.064478+00:00",
+            "active": true
+        },
+        {
+            "id": "4ab12239-91b4-43ea-926a-b800d6e2416a",
+            "name": "__init__.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/reasoning/__init__.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064483+00:00",
+            "updated_at": "2026-11-01 13:55:38.064484+00:00",
+            "active": true
+        },
+        {
+            "id": "fc60c644-1a4e-4109-b802-9fac34e601cc",
+            "name": "explanation_builder.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/reasoning/explanation_builder.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064490+00:00",
+            "updated_at": "2026-11-01 13:55:38.064491+00:00",
+            "active": true
+        },
+        {
+            "id": "924eb003-8001-4deb-8e47-d934c82ea3c0",
+            "name": "query_engine.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/reasoning/query_engine.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064497+00:00",
+            "updated_at": "2026-11-01 13:55:38.064499+00:00",
+            "active": true
+        },
+        {
+            "id": "c7e5de9b-700f-4814-a5b2-64f85b131af2",
+            "name": "analyzer.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/reasoning/question/analyzer.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064524+00:00",
+            "updated_at": "2026-11-01 13:55:38.064526+00:00",
+            "active": true
+        },
+        {
+            "id": "1bfca44e-ab17-4b7e-a947-8d7b9dcedda9",
+            "name": "__init__.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/reasoning/question/__init__.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064531+00:00",
+            "updated_at": "2026-11-01 13:55:38.064533+00:00",
+            "active": true
+        },
+        {
+            "id": "f51c7767-bf59-4400-8baf-5e62b5c62676",
+            "name": "identity.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/identity.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064566+00:00",
+            "updated_at": "2026-11-01 13:55:38.064567+00:00",
+            "active": true
+        },
+        {
+            "id": "a37a65ab-3a4c-4774-98c4-e27540580414",
+            "name": "events.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/events.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064576+00:00",
+            "updated_at": "2026-11-01 13:55:38.064577+00:00",
+            "active": true
+        },
+        {
+            "id": "1d5f84a5-1f4e-4cbe-afe2-4a4e00b2c04f",
+            "name": "evidence.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/evidence.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064587+00:00",
+            "updated_at": "2026-11-01 13:55:38.064589+00:00",
+            "active": true
+        },
+        {
+            "id": "e2dc5390-28fe-494d-8809-69f89c4c23bd",
+            "name": "guardian.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/guardian.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064597+00:00",
+            "updated_at": "2026-11-01 13:55:38.064598+00:00",
+            "active": true
+        },
+        {
+            "id": "71f9bdb7-48c7-482c-9700-53574f6633a8",
+            "name": "response.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/response.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064604+00:00",
+            "updated_at": "2026-11-01 13:55:38.064605+00:00",
+            "active": true
+        },
+        {
+            "id": "b9786603-2a3c-4761-b9f0-96d7c58fe1a6",
+            "name": "policy.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/policy.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064611+00:00",
+            "updated_at": "2026-11-01 13:55:38.064612+00:00",
+            "active": true
+        },
+        {
+            "id": "4948db59-394c-4a4b-94b6-d069ccabe024",
+            "name": "__init__.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/__init__.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064618+00:00",
+            "updated_at": "2026-11-01 13:55:38.064620+00:00",
+            "active": true
+        },
+        {
+            "id": "ae558603-4f0c-4084-8b63-da263e8cf90f",
+            "name": "audit.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/audit.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064625+00:00",
+            "updated_at": "2026-11-01 13:55:38.064627+00:00",
+            "active": true
+        },
+        {
+            "id": "1f3378fb-6eea-48d7-855b-b7f37753d60a",
+            "name": "risk.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/risk.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064632+00:00",
+            "updated_at": "2026-11-01 13:55:38.064634+00:00",
+            "active": true
+        },
+        {
+            "id": "5b475bc1-363d-4a0d-898f-49b385e6cf05",
+            "name": "collector.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/collector.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064642+00:00",
+            "updated_at": "2026-11-01 13:55:38.064643+00:00",
+            "active": true
+        },
+        {
+            "id": "6367e089-aec7-48d4-ba11-18332b4d85bc",
+            "name": "recovery_tests.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/testing/recovery_tests.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064694+00:00",
+            "updated_at": "2026-11-01 13:55:38.064696+00:00",
+            "active": true
+        },
+        {
+            "id": "4fc81225-0a43-4f1f-99cd-411b6758ea59",
+            "name": "report.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/testing/report.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064703+00:00",
+            "updated_at": "2026-11-01 13:55:38.064704+00:00",
+            "active": true
+        },
+        {
+            "id": "468ac1e9-fa47-4018-be59-8f5b78c11158",
+            "name": "identity_tests.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/testing/identity_tests.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064710+00:00",
+            "updated_at": "2026-11-01 13:55:38.064711+00:00",
+            "active": true
+        },
+        {
+            "id": "5fd69410-60cf-4e3d-8c8d-ea0b5d6827dd",
+            "name": "models.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/testing/models.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064717+00:00",
+            "updated_at": "2026-11-01 13:55:38.064719+00:00",
+            "active": true
+        },
+        {
+            "id": "87e6e83d-8ec7-4e32-abd6-4eb5e3f3b3a8",
+            "name": "__init__.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/testing/__init__.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064725+00:00",
+            "updated_at": "2026-11-01 13:55:38.064726+00:00",
+            "active": true
+        },
+        {
+            "id": "2a87708b-6724-4712-a280-3799cabd1c4e",
+            "name": "threat_tests.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/testing/threat_tests.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064731+00:00",
+            "updated_at": "2026-11-01 13:55:38.064733+00:00",
+            "active": true
+        },
+        {
+            "id": "d033e019-e2c3-464f-aaeb-3b9cb7a3150f",
+            "name": "permission_tests.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/testing/permission_tests.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064741+00:00",
+            "updated_at": "2026-11-01 13:55:38.064742+00:00",
+            "active": true
+        },
+        {
+            "id": "957bff44-372f-439e-ba3a-9538cc6e7aa7",
+            "name": "runner.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/testing/runner.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064748+00:00",
+            "updated_at": "2026-11-01 13:55:38.064750+00:00",
+            "active": true
+        },
+        {
+            "id": "af0d1ec5-33c7-43fa-b8cc-855e072cf9f3",
+            "name": "analyzer.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/threat/analyzer.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064779+00:00",
+            "updated_at": "2026-11-01 13:55:38.064781+00:00",
+            "active": true
+        },
+        {
+            "id": "41403c2c-13ad-446b-8bea-cdb09574eb60",
+            "name": "monitor.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/threat/monitor.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064787+00:00",
+            "updated_at": "2026-11-01 13:55:38.064789+00:00",
+            "active": true
+        },
+        {
+            "id": "99c5a0ae-747d-4312-a2a5-ee02062561b0",
+            "name": "intelligence.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/threat/intelligence.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064795+00:00",
+            "updated_at": "2026-11-01 13:55:38.064797+00:00",
+            "active": true
+        },
+        {
+            "id": "04e2052b-6522-455b-a31d-9de645eb4cb7",
+            "name": "response.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/threat/response.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064805+00:00",
+            "updated_at": "2026-11-01 13:55:38.064806+00:00",
+            "active": true
+        },
+        {
+            "id": "d62264d0-18ac-490e-a694-648dfcda1ee4",
+            "name": "models.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/threat/models.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064812+00:00",
+            "updated_at": "2026-11-01 13:55:38.064814+00:00",
+            "active": true
+        },
+        {
+            "id": "a5d3b706-e710-46ea-8f96-9e28ad3f90d3",
+            "name": "__init__.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/threat/__init__.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064819+00:00",
+            "updated_at": "2026-11-01 13:55:38.064821+00:00",
+            "active": true
+        },
+        {
+            "id": "4cce5f3a-e0ac-4e29-82f9-4e22bb10472d",
+            "name": "detector.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/threat/detector.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064826+00:00",
+            "updated_at": "2026-11-01 13:55:38.064828+00:00",
+            "active": true
+        },
+        {
+            "id": "c884b96f-27b8-42f3-a30b-f200056c4add",
+            "name": "controller.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/improvement/controller.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064851+00:00",
+            "updated_at": "2026-11-01 13:55:38.064853+00:00",
+            "active": true
+        },
+        {
+            "id": "68b2d466-53be-4582-bb66-f72bf8d0fcfb",
+            "name": "deployment.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/improvement/deployment.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064859+00:00",
+            "updated_at": "2026-11-01 13:55:38.064860+00:00",
+            "active": true
+        },
+        {
+            "id": "9980c85c-e238-4311-b80d-099fda9e876b",
+            "name": "validator.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/improvement/validator.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064866+00:00",
+            "updated_at": "2026-11-01 13:55:38.064868+00:00",
+            "active": true
+        },
+        {
+            "id": "1ed11867-2677-4315-a115-a1a4c4689046",
+            "name": "guardian_adapter.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/improvement/guardian_adapter.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064876+00:00",
+            "updated_at": "2026-11-01 13:55:38.064878+00:00",
+            "active": true
+        },
+        {
+            "id": "ffcd1b8f-3865-4e38-9272-fad6ad937745",
+            "name": "models.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/improvement/models.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064885+00:00",
+            "updated_at": "2026-11-01 13:55:38.064887+00:00",
+            "active": true
+        },
+        {
+            "id": "bea17f78-dd5b-4c03-819d-ae145f21a53f",
+            "name": "__init__.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/improvement/__init__.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064894+00:00",
+            "updated_at": "2026-11-01 13:55:38.064896+00:00",
+            "active": true
+        },
+        {
+            "id": "017f1b26-56da-43b7-a703-1dc3c700f158",
+            "name": "manager.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/improvement/sandbox/manager.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064924+00:00",
+            "updated_at": "2026-11-01 13:55:38.064925+00:00",
+            "active": true
+        },
+        {
+            "id": "e766a35b-8583-45f7-8b1e-7473229b545b",
+            "name": "__init__.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/improvement/sandbox/__init__.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064932+00:00",
+            "updated_at": "2026-11-01 13:55:38.064933+00:00",
+            "active": true
+        },
+        {
+            "id": "63aadb01-212f-4dfe-93b9-df5a1ef3bbdd",
+            "name": "manager.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/improvement/backup/manager.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064951+00:00",
+            "updated_at": "2026-11-01 13:55:38.064953+00:00",
+            "active": true
+        },
+        {
+            "id": "ee033352-a63f-4421-b1a4-e5dfcf625b6f",
+            "name": "__init__.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/improvement/backup/__init__.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064962+00:00",
+            "updated_at": "2026-11-01 13:55:38.064964+00:00",
+            "active": true
+        },
+        {
+            "id": "6c402702-e3b9-4b31-b59f-fcf5566e4fde",
+            "name": "authenticator.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/identity/authenticator.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064984+00:00",
+            "updated_at": "2026-11-01 13:55:38.064985+00:00",
+            "active": true
+        },
+        {
+            "id": "c87698cd-f678-4023-9775-6037bacdc1fd",
+            "name": "session.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/identity/session.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064991+00:00",
+            "updated_at": "2026-11-01 13:55:38.064993+00:00",
+            "active": true
+        },
+        {
+            "id": "0eceb92a-3b9d-453d-945a-cbf3e5060476",
+            "name": "trust.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/identity/trust.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.064999+00:00",
+            "updated_at": "2026-11-01 13:55:38.065000+00:00",
+            "active": true
+        },
+        {
+            "id": "4522b798-16a4-4cec-8591-c27da7caf2bd",
+            "name": "models.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/identity/models.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065006+00:00",
+            "updated_at": "2026-11-01 13:55:38.065007+00:00",
+            "active": true
+        },
+        {
+            "id": "3fc9ab0f-7057-40b5-b306-2527d8d1c7ad",
+            "name": "__init__.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/identity/__init__.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065016+00:00",
+            "updated_at": "2026-11-01 13:55:38.065017+00:00",
+            "active": true
+        },
+        {
+            "id": "992b6b35-a5ef-481b-a7b9-11195334f8a8",
+            "name": "device_registry.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/identity/device_registry.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065023+00:00",
+            "updated_at": "2026-11-01 13:55:38.065025+00:00",
+            "active": true
+        },
+        {
+            "id": "cb374ff8-b199-44fe-ac81-5ce550294694",
+            "name": "authorization.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/identity/authorization.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065030+00:00",
+            "updated_at": "2026-11-01 13:55:38.065047+00:00",
+            "active": true
+        },
+        {
+            "id": "584fd821-b4be-4159-8fcb-f50f887ec383",
+            "name": "system.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/immune/system.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065070+00:00",
+            "updated_at": "2026-11-01 13:55:38.065071+00:00",
+            "active": true
+        },
+        {
+            "id": "879507d0-fcf7-4f0c-961d-5635104f160a",
+            "name": "memory.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/immune/memory.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065077+00:00",
+            "updated_at": "2026-11-01 13:55:38.065078+00:00",
+            "active": true
+        },
+        {
+            "id": "affc7f7c-2a67-461e-a73d-e9047f398939",
+            "name": "hardening.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/immune/hardening.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065084+00:00",
+            "updated_at": "2026-11-01 13:55:38.065085+00:00",
+            "active": true
+        },
+        {
+            "id": "a54dfc9f-d91a-409f-b7e7-e9ed46fe67e0",
+            "name": "engine.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/immune/engine.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065093+00:00",
+            "updated_at": "2026-11-01 13:55:38.065095+00:00",
+            "active": true
+        },
+        {
+            "id": "18107348-c132-4c2e-9165-4f98602056e4",
+            "name": "__init__.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/immune/__init__.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065101+00:00",
+            "updated_at": "2026-11-01 13:55:38.065102+00:00",
+            "active": true
+        },
+        {
+            "id": "2f1eefa2-442f-4163-ad5a-e12a7e239e0b",
+            "name": "rules.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/immune/rules.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065108+00:00",
+            "updated_at": "2026-11-01 13:55:38.065109+00:00",
+            "active": true
+        },
+        {
+            "id": "5dd21b71-fcd2-410f-968f-2516203cbb7c",
+            "name": "engine.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/permission/engine.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065132+00:00",
+            "updated_at": "2026-11-01 13:55:38.065133+00:00",
+            "active": true
+        },
+        {
+            "id": "c62357f6-b29b-4d5f-b4c9-afb2c51f9ba9",
+            "name": "models.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/permission/models.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065141+00:00",
+            "updated_at": "2026-11-01 13:55:38.065143+00:00",
+            "active": true
+        },
+        {
+            "id": "72229f9b-7669-4685-918e-715762132c9d",
+            "name": "__init__.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/permission/__init__.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065151+00:00",
+            "updated_at": "2026-11-01 13:55:38.065152+00:00",
+            "active": true
+        },
+        {
+            "id": "1415b7c7-7382-43b7-8f6f-3b139c9b8f9f",
+            "name": "rules.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/permission/rules.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065158+00:00",
+            "updated_at": "2026-11-01 13:55:38.065159+00:00",
+            "active": true
+        },
+        {
+            "id": "9a7103af-55ea-486f-9a25-673887084ad0",
+            "name": "controller.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/guardian/controller.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065180+00:00",
+            "updated_at": "2026-11-01 13:55:38.065182+00:00",
+            "active": true
+        },
+        {
+            "id": "b9e38763-cef6-4207-a327-1b4db45b7ac2",
+            "name": "agent.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/guardian/agent.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065191+00:00",
+            "updated_at": "2026-11-01 13:55:38.065192+00:00",
+            "active": true
+        },
+        {
+            "id": "8755222e-5fdc-4337-a4bf-056e744104bc",
+            "name": "system.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/guardian/system.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065198+00:00",
+            "updated_at": "2026-11-01 13:55:38.065200+00:00",
+            "active": true
+        },
+        {
+            "id": "8974e641-5abd-453b-86b2-af3d2b2e5fbe",
+            "name": "state.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/guardian/state.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065205+00:00",
+            "updated_at": "2026-11-01 13:55:38.065206+00:00",
+            "active": true
+        },
+        {
+            "id": "5d1c0c91-b88a-4f1f-bee9-157375e99d62",
+            "name": "learning.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/guardian/learning.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065212+00:00",
+            "updated_at": "2026-11-01 13:55:38.065214+00:00",
+            "active": true
+        },
+        {
+            "id": "931301f5-fdf1-4d16-9fe7-7370ed460f25",
+            "name": "coordinator.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/guardian/coordinator.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065221+00:00",
+            "updated_at": "2026-11-01 13:55:38.065223+00:00",
+            "active": true
+        },
+        {
+            "id": "7f2429d1-6152-4804-89e9-6de92f39cc5d",
+            "name": "__init__.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/guardian/__init__.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065230+00:00",
+            "updated_at": "2026-11-01 13:55:38.065232+00:00",
+            "active": true
+        },
+        {
+            "id": "9f49879b-ec42-4af6-aff0-04ccf15736e1",
+            "name": "recommendations.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/guardian/recommendations.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065237+00:00",
+            "updated_at": "2026-11-01 13:55:38.065239+00:00",
+            "active": true
+        },
+        {
+            "id": "2e44b489-7f4d-4cae-91a5-376b395f2db2",
+            "name": "integration.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/core/integration.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065279+00:00",
+            "updated_at": "2026-11-01 13:55:38.065281+00:00",
+            "active": true
+        },
+        {
+            "id": "035b9ce8-36be-46e5-b78a-54dd5945ed12",
+            "name": "security_validator.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/core/security_validator.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065289+00:00",
+            "updated_at": "2026-11-01 13:55:38.065291+00:00",
+            "active": true
+        },
+        {
+            "id": "613e0ffc-2eed-4e35-93d6-3fac620ad59e",
+            "name": "encryption.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/core/encryption.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065298+00:00",
+            "updated_at": "2026-11-01 13:55:38.065299+00:00",
+            "active": true
+        },
+        {
+            "id": "e37e1476-44d7-403b-b050-a5ebfea1fc5f",
+            "name": "security_factory.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/core/security_factory.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065305+00:00",
+            "updated_at": "2026-11-01 13:55:38.065307+00:00",
+            "active": true
+        },
+        {
+            "id": "5af68b72-ba6e-429e-bb2a-f033ffa28577",
+            "name": "integrity.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/core/integrity.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065313+00:00",
+            "updated_at": "2026-11-01 13:55:38.065315+00:00",
+            "active": true
+        },
+        {
+            "id": "6e882cd0-86d7-458b-b24c-1aa14c0fd8fa",
+            "name": "security_events.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/core/security_events.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065322+00:00",
+            "updated_at": "2026-11-01 13:55:38.065324+00:00",
+            "active": true
+        },
+        {
+            "id": "5fab32c9-9ae1-4405-a60b-196e67e112af",
+            "name": "security_manager.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/core/security_manager.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065329+00:00",
+            "updated_at": "2026-11-01 13:55:38.065331+00:00",
+            "active": true
+        },
+        {
+            "id": "3071f582-6180-413a-8bab-f9cccb0904aa",
+            "name": "security_boot.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/core/security_boot.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065339+00:00",
+            "updated_at": "2026-11-01 13:55:38.065341+00:00",
+            "active": true
+        },
+        {
+            "id": "26d53d7d-e38d-495c-a196-77dc9bc62bc2",
+            "name": "policy_manager.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/core/policy_manager.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065347+00:00",
+            "updated_at": "2026-11-01 13:55:38.065348+00:00",
+            "active": true
+        },
+        {
+            "id": "1802d4cc-2690-4fa7-9b0d-b5a29c10aa24",
+            "name": "security_integration_test.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/core/security_integration_test.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065354+00:00",
+            "updated_at": "2026-11-01 13:55:38.065356+00:00",
+            "active": true
+        },
+        {
+            "id": "75c87e0c-49ee-473f-9d90-392f3af96cab",
+            "name": "guardian_orchestrator.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/core/guardian_orchestrator.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065361+00:00",
+            "updated_at": "2026-11-01 13:55:38.065363+00:00",
+            "active": true
+        },
+        {
+            "id": "b16740a5-c81f-4dcd-bff0-f716eba56e1e",
+            "name": "event_router.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/core/event_router.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065368+00:00",
+            "updated_at": "2026-11-01 13:55:38.065370+00:00",
+            "active": true
+        },
+        {
+            "id": "cd138fc0-613f-466a-a9ed-d94cc5821479",
+            "name": "security_registry.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/core/security_registry.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065375+00:00",
+            "updated_at": "2026-11-01 13:55:38.065377+00:00",
+            "active": true
+        },
+        {
+            "id": "6eb0da65-5a6d-4815-ac0b-c37e4c1f67a7",
+            "name": "health_monitor.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/core/health_monitor.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065383+00:00",
+            "updated_at": "2026-11-01 13:55:38.065385+00:00",
+            "active": true
+        },
+        {
+            "id": "66dadb74-24ba-4417-b4c9-93a7f42a5013",
+            "name": "guardian_core.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/core/guardian_core.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065390+00:00",
+            "updated_at": "2026-11-01 13:55:38.065392+00:00",
+            "active": true
+        },
+        {
+            "id": "5ccd4a0d-152b-4596-b041-4a7b81928de6",
+            "name": "threat_response.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/core/threat_response.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065399+00:00",
+            "updated_at": "2026-11-01 13:55:38.065401+00:00",
+            "active": true
+        },
+        {
+            "id": "56ab1a35-2ad4-483f-83dd-4f9397b42101",
+            "name": "status.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/core/status.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065406+00:00",
+            "updated_at": "2026-11-01 13:55:38.065408+00:00",
+            "active": true
+        },
+        {
+            "id": "61e66072-1cee-417f-8d70-8f2268f455c2",
+            "name": "incident.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/core/incident.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065414+00:00",
+            "updated_at": "2026-11-01 13:55:38.065416+00:00",
+            "active": true
+        },
+        {
+            "id": "8b1488ac-d32e-49c2-a162-4e94ab778b07",
+            "name": "security_summary.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/core/security_summary.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065421+00:00",
+            "updated_at": "2026-11-01 13:55:38.065423+00:00",
+            "active": true
+        },
+        {
+            "id": "23a66b21-bb80-4449-9006-6c8ec28d3137",
+            "name": "security_initializer.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/core/security_initializer.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065429+00:00",
+            "updated_at": "2026-11-01 13:55:38.065430+00:00",
+            "active": true
+        },
+        {
+            "id": "c47e260e-5581-4a66-a15d-d96a9cde739f",
+            "name": "diagnostics.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/core/diagnostics.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065437+00:00",
+            "updated_at": "2026-11-01 13:55:38.065438+00:00",
+            "active": true
+        },
+        {
+            "id": "a6396ddf-01a3-4430-9c13-c1117b45c187",
+            "name": "compliance.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/core/compliance.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065446+00:00",
+            "updated_at": "2026-11-01 13:55:38.065448+00:00",
+            "active": true
+        },
+        {
+            "id": "779ceaba-a1ee-4937-8e6b-8977614d0f95",
+            "name": "__init__.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/core/__init__.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065454+00:00",
+            "updated_at": "2026-11-01 13:55:38.065455+00:00",
+            "active": true
+        },
+        {
+            "id": "6f57fa34-125d-481c-a4b0-495e2368c4db",
+            "name": "recovery_manager.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/core/recovery_manager.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065463+00:00",
+            "updated_at": "2026-11-01 13:55:38.065465+00:00",
+            "active": true
+        },
+        {
+            "id": "522181fd-9cad-49d6-b302-28d6fcdc7204",
+            "name": "emergency.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/core/emergency.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065470+00:00",
+            "updated_at": "2026-11-01 13:55:38.065472+00:00",
+            "active": true
+        },
+        {
+            "id": "0a45b956-dd0e-437c-a107-77b953a546d5",
+            "name": "security_api.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/core/security_api.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065478+00:00",
+            "updated_at": "2026-11-01 13:55:38.065480+00:00",
+            "active": true
+        },
+        {
+            "id": "039ac617-8446-4db5-b19c-a3ec13dfe339",
+            "name": "security_logger.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/core/security_logger.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065485+00:00",
+            "updated_at": "2026-11-01 13:55:38.065487+00:00",
+            "active": true
+        },
+        {
+            "id": "2eb2fdd4-cd31-4c39-87e1-af6e1e1dd24b",
+            "name": "access_control.py",
+            "entity_type": "file",
+            "properties": {
+                "path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/ultron/security/core/access_control.py",
+                "extension": ".py"
+            },
+            "state": {},
+            "location": null,
+            "created_at": "2026-11-01 13:55:38.065497+00:00",
+            "updated_at": "2026-11-01 13:55:38.065499+00:00",
+            "active": true
+        }
+    ],
+    "relationships": []
+}

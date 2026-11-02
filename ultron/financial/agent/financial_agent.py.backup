@@ -1,0 +1,80 @@
+class FinancialAgent:
+    """
+    Coordinates financial intelligence.
+    """
+
+
+    def __init__(
+        self,
+        market_data,
+        analysis,
+        regime,
+        reasoning,
+        decision,
+        memory,
+    ):
+
+        self.market_data = market_data
+
+        self.analysis = analysis
+
+        self.regime = regime
+
+        self.reasoning = reasoning
+
+        self.decision = decision
+
+        self.memory = memory
+
+
+
+    def analyze(
+        self,
+        symbol,
+    ):
+
+        company = (
+            self.market_data
+            .execute(
+                {
+                    "action":"company",
+                    "symbol":symbol,
+                }
+            )
+        )
+
+
+        market = (
+            self.market_data
+            .execute(
+                {
+                    "action":"analyze",
+                    "symbol":symbol,
+                }
+            )
+        )
+
+
+        regime = (
+            self.regime
+            .analyze(
+                market["history"]
+            )
+        )
+
+
+        return {
+
+            "symbol":
+                symbol,
+
+            "company":
+                company,
+
+            "market":
+                market,
+
+            "regime":
+                regime,
+
+        }

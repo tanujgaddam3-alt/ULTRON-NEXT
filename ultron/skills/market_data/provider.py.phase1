@@ -1,0 +1,59 @@
+from datetime import datetime
+
+from .models import PricePoint, MarketSnapshot
+
+
+class MarketDataProvider:
+    """
+    Real market data provider.
+    """
+
+
+    def get_price(
+        self,
+        symbol: str,
+    ):
+
+        import yfinance as yf
+
+        import yfinance as yf
+
+        ticker = yf.Ticker(symbol)
+
+        data = ticker.history(
+            period="1d"
+        )
+
+
+        if data.empty:
+
+            raise Exception(
+                "No market data found"
+            )
+
+
+        price = float(
+            data["Close"].iloc[-1]
+        )
+
+
+        return PricePoint(
+            symbol=symbol,
+            price=price,
+            timestamp=datetime.now(),
+        )
+
+
+
+    def get_history(
+        self,
+        symbol: str,
+        period="1y",
+    ):
+
+        ticker = yf.Ticker(symbol)
+
+
+        return ticker.history(
+            period=period
+        )

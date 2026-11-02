@@ -1,0 +1,18 @@
+from pathlib import Path
+import re
+
+
+for file in Path("ultron").rglob("*.py"):
+
+    text = file.read_text()
+
+    new = re.sub(
+        r"^(\s*)(\w+)\s*=\s*(\[\]|\{\})",
+        r"\1\2: ClassVar = \3",
+        text,
+        flags=re.MULTILINE
+    )
+
+    if new != text:
+        file.write_text(new)
+        print("Fixed", file)

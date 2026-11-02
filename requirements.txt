@@ -1,0 +1,25 @@
+loguru==0.7.3
+pydantic==2.13.4
+pydantic-settings==2.14.2
+pypdf
+requests
+openai
+pymupdf
+certifi>=2026.10.18
+websockets>=13.0
+streamlit
+
+# Runtime integrations imported by ULTRON financial and voice subsystems
+alpaca-py
+yfinance
+pandas
+edge-tts>=7.3.1
+soundfile
+Pillow>=11.3
+
+# Coinbase Advanced Trade API authentication (ES256 CDP API keys)
+PyJWT>=2.8,<3
+cryptography>=42
+
+# Groww's official authenticated, read-only market-data SDK
+growwapi>=1.5.0

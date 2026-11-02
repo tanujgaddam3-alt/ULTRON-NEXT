@@ -1,0 +1,77 @@
+{
+  "schemaVersion": "cre-edit-baseline-v1",
+  "toolchain": {
+    "ffmpeg": "ffmpeg version 8.0.1-3ubuntu2+esm5 Copyright (c) 2000-2025 the FFmpeg developers",
+    "ffprobe": "ffprobe version 8.0.1-3ubuntu2+esm5 Copyright (c) 2007-2025 the FFmpeg developers"
+  },
+  "planDecisions": {
+    "singleSource": {
+      "segmentCount": 6,
+      "durationSeconds": 15.0,
+      "sourceCounts": {
+        "source-a": 6
+      },
+      "segments": [
+        ["source-a", 0.0, 2.5],
+        ["source-a", 0.0, 2.5],
+        ["source-a", 0.0, 2.5],
+        ["source-a", 0.0, 2.5],
+        ["source-a", 0.0, 2.5],
+        ["source-a", 0.0, 2.5]
+      ]
+    },
+    "twoSourceBaseline": {
+      "segmentCount": 6,
+      "durationSeconds": 20.0,
+      "sourceCounts": {
+        "source-a": 3,
+        "source-b": 3
+      },
+      "segments": [
+        ["source-a", 0.0, 3.333],
+        ["source-b", 0.0, 3.333],
+        ["source-a", 0.0, 3.333],
+        ["source-b", 2.333, 5.667],
+        ["source-a", 0.0, 3.333],
+        ["source-b", 4.667, 8.0]
+      ]
+    },
+    "twoSourceRevision": {
+      "segmentCount": 14,
+      "durationSeconds": 20.0,
+      "sourceCounts": {
+        "source-a": 7,
+        "source-b": 7
+      },
+      "segments": [
+        ["source-a", 0.0, 1.429],
+        ["source-b", 0.0, 1.429],
+        ["source-a", 4.0, 5.429],
+        ["source-b", 2.0, 3.429],
+        ["source-a", 6.0, 7.429],
+        ["source-b", 4.0, 5.429],
+        ["source-a", 0.0, 1.429],
+        ["source-b", 6.0, 7.429],
+        ["source-a", 4.0, 5.429],
+        ["source-b", 4.0, 5.429],
+        ["source-a", 6.0, 7.429],
+        ["source-b", 6.0, 7.429],
+        ["source-a", 6.0, 7.429],
+        ["source-b", 6.0, 7.429]
+      ]
+    }
+  },
+  "twoSourceRender": {
+    "width": 1280,
+    "height": 720,
+    "fps": 30.0,
+    "video": true,
+    "audio": true,
+    "quality": "PASSED"
+  },
+  "comparisonPolicy": {
+    "planNumbersRoundedToSeconds": 3,
+    "outputHashMustMatchAcrossRuns": false,
+    "toolchainVersionRecordedPerRun": true
+  }
+}

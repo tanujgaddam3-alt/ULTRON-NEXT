@@ -1,0 +1,156 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from typing import Any
+
+import yfinance as yf
+
+from .assets import AssetClass, classify_asset, normalize_symbol
+from .models import MarketSnapshot, PricePoint
+
+
+class MarketDataProvider:
+    """
+    Unified market-data provider for equities, crypto, and forex.
+
+    The public API remains compatible with the original provider while
+    exposing normalized multi-asset metadata for Phase 2 planning.
+    """
+
+    source = "yfinance"
+
+    def classify(self, symbol: str) -> AssetClass:
+        return classify_asset(symbol)
+
+    def normalize(self, symbol: str) -> str:
+        return normalize_symbol(symbol)
+
+    def get_price(self, symbol: str) -> PricePoint:
+        original = self._validate_symbol(symbol)
+        asset_class = self.classify(original)
+        provider_symbol = normalize_symbol(original, asset_class)
+
+        ticker = yf.Ticker(provider_symbol)
+        data = ticker.history(period="1d", auto_adjust=False)
+
+        if data.empty or "Close" not in data.columns:
+            raise ValueError(f"No market data found for {original}.")
+
+        close = data["Close"].dropna()
+        if close.empty:
+            raise ValueError(f"No valid closing price found for {original}.")
+
+        price = float(close.iloc[-1])
+        timestamp = self._timestamp_from_index(close.index[-1])
+
+        return PricePoint(
+            symbol=original,
+            price=price,
+            timestamp=timestamp,
+            asset_class=asset_class,
+            source=self.source,
+        )
+
+    def get_snapshot(self, symbol: str) -> MarketSnapshot:
+        original = self._validate_symbol(symbol)
+        asset_class = self.classify(original)
+        provider_symbol = normalize_symbol(original, asset_class)
+
+        ticker = yf.Ticker(provider_symbol)
+        data = ticker.history(period="5d", auto_adjust=False)
+
+        if data.empty or "Close" not in data.columns:
+            raise ValueError(f"No market data found for {original}.")
+
+        close = data["Close"].dropna()
+        if close.empty:
+            raise ValueError(f"No valid closing price found for {original}.")
+
+        current_price = float(close.iloc[-1])
+        timestamp = self._timestamp_from_index(close.index[-1])
+
+        change_percent = 0.0
+        if len(close) >= 2:
+            previous = float(close.iloc[-2])
+            if previous:
+                change_percent = ((current_price - previous) / previous) * 100.0
+
+        volume = None
+        if "Volume" in data.columns:
+            volumes = data["Volume"].dropna()
+            if not volumes.empty:
+                volume = float(volumes.iloc[-1])
+
+        now = datetime.now(timezone.utc)
+        age = max(0.0, (now - timestamp.astimezone(timezone.utc)).total_seconds())
+
+        return MarketSnapshot(
+            symbol=original,
+            current_price=current_price,
+            change_percent=change_percent,
+            timestamp=timestamp,
+            asset_class=asset_class,
+            source=self.source,
+            freshness=self._freshness(age),
+            data_age_seconds=age,
+            currency=self._currency(asset_class, original),
+            volume=volume,
+        )
+
+    def get_history(
+        self,
+        symbol: str,
+        period: str = "1y",
+    ) -> Any:
+        original = self._validate_symbol(symbol)
+        asset_class = self.classify(original)
+        provider_symbol = normalize_symbol(original, asset_class)
+
+        ticker = yf.Ticker(provider_symbol)
+        return ticker.history(period=period, auto_adjust=False)
+
+    def _validate_symbol(self, symbol: str) -> str:
+        if not isinstance(symbol, str) or not symbol.strip():
+            raise ValueError("A market symbol is required.")
+        return symbol.strip().upper()
+
+    @staticmethod
+    def _timestamp_from_index(value: Any) -> datetime:
+        if hasattr(value, "to_pydatetime"):
+            value = value.to_pydatetime()
+
+        if not isinstance(value, datetime):
+            return datetime.now(timezone.utc)
+
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+
+        return value.astimezone(timezone.utc)
+
+    @staticmethod
+    def _freshness(age_seconds: float) -> str:
+        if age_seconds <= 15 * 60:
+            return "current"
+        if age_seconds <= 24 * 60 * 60:
+            return "delayed"
+        return "stale"
+
+    @staticmethod
+    def _currency(
+        asset_class: AssetClass,
+        symbol: str,
+    ) -> str | None:
+        if asset_class is AssetClass.FOREX:
+            value = symbol.replace("=X", "")
+            if "/" in value:
+                return value.split("/", 1)[1]
+            if len(value) >= 6:
+                return value[3:6]
+
+        if asset_class is AssetClass.CRYPTO:
+            if "/" in symbol:
+                return symbol.split("/", 1)[1]
+            if "-" in symbol:
+                return symbol.split("-", 1)[1]
+
+        return "USD"

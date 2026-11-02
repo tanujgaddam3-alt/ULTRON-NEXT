@@ -1,0 +1,543 @@
+from __future__ import annotations
+
+import threading
+
+from datetime import UTC, datetime
+from typing import Any
+
+from .engine import PaperTradingEngine
+from .signal_generator import FinancialSignalGenerator
+
+from .reliability.price_guard import (
+    PriceGuard,
+    PriceSnapshot,
+)
+
+from .reliability.reconciliation import (
+    PortfolioReconciler,
+)
+
+from .reliability.idempotency import (
+    OrderIdempotency,
+)
+
+from .risk.daily_loss_guard import (
+    DailyLossGuard,
+)
+
+from .operations.trading_control import (
+    TradingControl,
+)
+from .market.interface import MarketAdapter
+from .market_data.service import MarketDataService
+
+class FinancialTradingController:
+    """
+    Coordinates financial intelligence with paper trading.
+
+    Pipeline:
+
+        FinancialAgent
+            ↓
+        PriceGuard
+            ↓
+        SignalGenerator
+            ↓
+        TradingControl
+            ↓
+        DailyLossGuard
+            ↓
+        PortfolioReconciliation
+            ↓
+        Idempotency
+            ↓
+        PaperTradingEngine
+            ↓
+        PaperBroker
+    """
+
+    def __init__(
+        self,
+        trading_engine: PaperTradingEngine,
+        signal_generator: FinancialSignalGenerator | None = None,
+        price_guard: PriceGuard | None = None,
+        idempotency: OrderIdempotency | None = None,
+        daily_loss_guard: DailyLossGuard | None = None,
+        trading_control: TradingControl | None = None,
+        reconciler: PortfolioReconciler | None = None,
+        market_data: MarketDataService | None = None,
+    market_adapter: MarketAdapter | None = None,
+    ):
+        if trading_engine is None:
+            raise ValueError(
+                "Trading engine is required."
+            )
+
+        self._execution_lock = threading.RLock()
+
+        self.trading_engine = trading_engine
+
+        self.market_adapter = market_adapter
+
+        self.market_data = market_data
+
+        if self.market_data is None and self.market_adapter is not None:
+         self.market_data = MarketDataService(
+        self.market_adapter
+    )
+
+        self.signal_generator = (
+            signal_generator
+            or FinancialSignalGenerator()
+        )
+
+        self.price_guard = (
+            price_guard
+            or PriceGuard(
+                max_age_seconds=30
+            )
+        )
+
+        self.idempotency = (
+            idempotency
+            or OrderIdempotency()
+        )
+
+        self.daily_loss_guard = (
+            daily_loss_guard
+            or DailyLossGuard(
+                max_daily_loss_percent=2.0
+            )
+        )
+
+        self.trading_control = (
+            trading_control
+            or TradingControl()
+        )
+
+        self.reconciler = (
+            reconciler
+            or PortfolioReconciler()
+        )
+
+        self.daily_starting_equity = float(
+            self.trading_engine.broker.snapshot(
+                {}
+            )["equity"]
+        )
+
+    def execute_from_market(
+    self,
+    analysis: dict[str, Any],
+) -> dict[str, Any]:
+     """
+    Obtain the current market price through MarketDataService
+    and execute the financial trading decision.
+
+    This keeps market-specific mechanics outside the trading
+    decision pipeline.
+    """
+
+     if self.market_data is None:
+        return {
+            "success": False,
+            "stage": "market_data",
+            "reason": "Market data service is not configured.",
+        }
+
+     if not isinstance(analysis, dict):
+        return {
+            "success": False,
+            "stage": "validation",
+            "reason": (
+                "Financial analysis must be a dictionary."
+            ),
+        }
+
+     symbol = str(
+        analysis.get("symbol", "")
+    ).strip().upper()
+
+     if not symbol:
+        return {
+            "success": False,
+            "stage": "market_data",
+            "reason": "Financial analysis must contain a symbol.",
+        }
+
+     try:
+        market_result = (
+            self.market_data.get_current_price(
+                symbol
+            )
+        )
+     except (RuntimeError, TypeError, ValueError) as exc:
+        return {
+            "success": False,
+            "stage": "market_data",
+            "reason": str(exc),
+        }
+
+     if not market_result.get("valid", False):
+        return {
+            "success": False,
+            "stage": "market_data",
+            "reason": market_result.get(
+                "reason",
+                "Market data validation failed.",
+            ),
+            "market_data": market_result,
+        }
+
+     return self.execute(
+        analysis=analysis,
+        price=float(market_result["price"]),
+        price_timestamp=market_result["timestamp"],
+    )
+
+    def execute(
+        self,
+        analysis: dict[str, Any],
+        price: float,
+        price_timestamp: datetime | None = None,
+    ) -> dict[str, Any]:
+        # Serialize the idempotency-check -> broker-execution -> idempotency-record
+        # transaction within this process. Without this lock, concurrent calls can
+        # both observe an empty idempotency key and both submit an order.
+        with self._execution_lock:
+            return self._execute_unlocked(
+                analysis=analysis,
+                price=price,
+                price_timestamp=price_timestamp,
+            )
+
+    def _execute_unlocked(
+        self,
+        analysis: dict[str, Any],
+        price: float,
+        price_timestamp: datetime | None = None,
+    ) -> dict[str, Any]:
+        """
+        Validate and execute a financial trading decision.
+
+        This controller is simulation-only through the
+        PaperTradingEngine / PaperBroker stack.
+        """
+
+        # ---------------------------------------------------------
+        # Basic validation
+        # ---------------------------------------------------------
+
+        if not isinstance(analysis, dict):
+            return {
+                "success": False,
+                "stage": "validation",
+                "reason": (
+                    "Financial analysis must be a dictionary."
+                ),
+            }
+
+        if price <= 0:
+            return {
+                "success": False,
+                "stage": "validation",
+                "reason": "Price must be positive.",
+            }
+
+        # ---------------------------------------------------------
+        # Price freshness protection
+        # ---------------------------------------------------------
+
+        if price_timestamp is None:
+            return {
+                "success": False,
+                "stage": "price_guard",
+                "reason": "A source price timestamp is required; refusing an untimestamped price.",
+            }
+        timestamp = price_timestamp
+
+        symbol = str(
+            analysis.get("symbol", "")
+        ).strip().upper()
+
+        snapshot = PriceSnapshot(
+            symbol=symbol,
+            price=float(price),
+            timestamp=timestamp,
+        )
+
+        guard_result = self.price_guard.validate(
+            snapshot
+        )
+
+        if not guard_result.get("valid", False):
+            return {
+                "success": False,
+                "stage": "price_guard",
+                "reason": guard_result.get(
+                    "reason",
+                    "Price validation failed.",
+                ),
+                "price_guard": guard_result,
+            }
+
+        # ---------------------------------------------------------
+        # Generate trading signal
+        # ---------------------------------------------------------
+
+        try:
+            signal = self.signal_generator.generate(
+                analysis,
+                price,
+            )
+
+        except (TypeError, ValueError) as exc:
+            return {
+                "success": False,
+                "stage": "signal_generation",
+                "reason": str(exc),
+                "price_guard": guard_result,
+            }
+        is_hold = signal.action.value == "hold"
+
+         # ---------------------------------------------------------
+        # Manual trading control
+        # ---------------------------------------------------------
+
+        control_result = (
+            self.trading_control.validate()
+        )
+
+        if not control_result.get("valid", False):
+
+            # Emergency SELL exits remain possible.
+            if signal.action.value != "sell":
+                return {
+                    "success": False,
+                    "status": "paused",
+                    "stage": "trading_control",
+                    "reason": control_result.get(
+                        "reason",
+                        "Trading is manually paused.",
+                    ),
+                    "signal": signal,
+                    "trading_control": control_result,
+                    "portfolio": (
+                        self.trading_engine.broker.snapshot(
+                            {signal.symbol: price}
+                        )
+                    ),
+                    "price_guard": guard_result,
+                }
+
+        # ---------------------------------------------------------
+        # Daily loss protection
+        # ---------------------------------------------------------
+
+        current_portfolio = (
+            self.trading_engine.broker.snapshot(
+                {signal.symbol: price}
+            )
+        )
+
+        current_equity = float(
+            current_portfolio["equity"]
+        )
+
+        daily_loss_result = (
+            self.daily_loss_guard.validate(
+                starting_equity=(
+                    self.daily_starting_equity
+                ),
+                current_equity=current_equity,
+            )
+        )
+
+        if not daily_loss_result.get(
+            "valid",
+            False,
+        ):
+
+            # Emergency SELL exits remain possible.
+            if signal.action.value != "sell":
+                return {
+                    "success": False,
+                    "status": "halted",
+                    "stage": "daily_loss_guard",
+                    "reason": daily_loss_result.get(
+                        "reason",
+                        "Daily loss limit exceeded.",
+                    ),
+                    "signal": signal,
+                    "daily_loss": daily_loss_result,
+                    "portfolio": current_portfolio,
+                    "price_guard": guard_result,
+                    "trading_control": control_result,
+                }
+
+        # ---------------------------------------------------------
+        # Portfolio reconciliation
+        # ---------------------------------------------------------
+
+        broker_portfolio = (
+            self.trading_engine.broker.snapshot(
+                {signal.symbol: price}
+            )
+        )
+
+        # Current paper-trading architecture has a single
+        # authoritative broker state. Until an independent
+        # internal state store exists, use the broker snapshot
+        # as the internal baseline.
+        internal_portfolio = {
+            "cash": broker_portfolio["cash"],
+            "positions": {
+                symbol: dict(position)
+                for symbol, position
+                in broker_portfolio[
+                    "positions"
+                ].items()
+            },
+        }
+
+        reconciliation = (
+            self.reconciler.reconcile(
+                internal=internal_portfolio,
+                broker=broker_portfolio,
+            )
+        )
+
+        if not reconciliation.get(
+            "valid",
+            False,
+        ):
+            return {
+                "success": False,
+                "status": "reconciliation_failed",
+                "stage": "reconciliation",
+                "reason": reconciliation.get(
+                    "reason",
+                    "Portfolio reconciliation failed.",
+                ),
+                "signal": signal,
+                "reconciliation": reconciliation,
+                "portfolio": broker_portfolio,
+                "price_guard": guard_result,
+                "daily_loss": daily_loss_result,
+                "trading_control": control_result,
+            }
+                # ---------------------------------------------------------
+        # HOLD signals do not create orders
+        # ---------------------------------------------------------
+
+        if is_hold:
+            result = self.trading_engine.execute(
+                signal,
+                market_prices={
+                    signal.symbol: price,
+                },
+            )
+
+            return {
+                "success": bool(
+                    result.get("success", False)
+                ),
+                "signal": signal,
+                "execution": result,
+                "portfolio": result.get(
+                    "portfolio"
+                ),
+                "price_guard": guard_result,
+                "daily_loss": daily_loss_result,
+                "trading_control": control_result,
+                "reconciliation": reconciliation,
+            }
+
+        # ---------------------------------------------------------
+        # Idempotency
+        # ---------------------------------------------------------
+
+        idempotency_key = (
+            f"{signal.symbol}:"
+            f"{signal.action.value}:"
+            f"{signal.price:.8f}:"
+            f"{signal.strategy or ''}"
+        )
+
+        existing = self.idempotency.check(
+            idempotency_key
+        )
+
+        if existing is not None:
+            return {
+                "success": True,
+                "status": "duplicate",
+                "stage": "idempotency",
+                "reason": (
+                    "Duplicate order prevented."
+                ),
+                "idempotency_key": (
+                    idempotency_key
+                ),
+                "original_order_id": (
+                    existing.order_id
+                ),
+                "signal": signal,
+                "portfolio": (
+                    self.trading_engine.broker.snapshot(
+                        {signal.symbol: price}
+                    )
+                ),
+                "price_guard": guard_result,
+                "daily_loss": daily_loss_result,
+                "trading_control": control_result,
+                "reconciliation": reconciliation,
+            }
+
+        # ---------------------------------------------------------
+        # Execute order
+        # ---------------------------------------------------------
+
+        result = self.trading_engine.execute(
+            signal,
+            market_prices={
+                signal.symbol: price,
+            },
+        )
+
+        # ---------------------------------------------------------
+        # Record successful order for idempotency
+        # ---------------------------------------------------------
+
+        if result.get("success") and result.get(
+            "order"
+        ):
+            order_id = result[
+                "order"
+            ].get("order_id")
+
+            if order_id:
+                self.idempotency.record(
+                    idempotency_key,
+                    order_id,
+                )
+
+        # ---------------------------------------------------------
+        # Final response
+        # ---------------------------------------------------------
+
+        return {
+            "success": bool(
+                result.get("success", False)
+            ),
+            "signal": signal,
+            "execution": result,
+            "portfolio": result.get(
+                "portfolio"
+            ),
+            "price_guard": guard_result,
+            "daily_loss": daily_loss_result,
+            "trading_control": control_result,
+            "reconciliation": reconciliation,
+            "idempotency_key": idempotency_key,
+        }

@@ -1,0 +1,1433 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+import re
+from typing import Any
+
+from .language_registry import LanguageRegistry, LanguageSpec
+
+
+@dataclass(frozen=True)
+class LanguageRequirements:
+    """
+    Normalized engineering requirements extracted from a coding request.
+
+    Values are normalized to [0.0, 1.0].
+    """
+
+    performance: float = 0.0
+    safety: float = 0.0
+    portability: float = 0.0
+    ecosystem: float = 0.0
+    development_speed: float = 0.0
+
+    concurrency: float = 0.0
+    systems: float = 0.0
+    web: float = 0.0
+    mobile: float = 0.0
+    embedded: float = 0.0
+    ai_ml: float = 0.0
+    data_science: float = 0.0
+    backend: float = 0.0
+    frontend: float = 0.0
+    realtime: float = 0.0
+
+    explicit_language: str | None = None
+
+    constraints: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class LanguageCandidate:
+    language: str
+    score: float
+    available: bool
+    toolchain: dict[str, list[str]]
+    reasons: tuple[str, ...]
+    penalties: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class LanguageSelection:
+    selected: LanguageCandidate | None
+    alternatives: tuple[LanguageCandidate, ...]
+    requirements: LanguageRequirements
+    confidence: float
+    explanation: str
+
+
+class LanguageSelector:
+    """
+    Selects the most appropriate programming language for an engineering task.
+
+    This is deliberately deterministic. The LLM can help understand a request,
+    but the final language choice is grounded in machine-readable language
+    characteristics and actual host toolchain availability.
+    """
+
+    # Generic lexical signals.
+    #
+    # These intentionally avoid extremely broad words such as
+    # "system", "service", "fast", and "browser". High-level domain
+    # phrases are handled explicitly by analyze_requirements().
+    _SIGNALS: dict[str, tuple[str, ...]] = {
+        "performance": (
+            "high performance",
+            "high-performance",
+            "low latency",
+            "low-latency",
+            "ultra low latency",
+            "ultra-low latency",
+            "high throughput",
+            "maximum performance",
+            "absolute performance",
+            "fast runtime",
+            "optimized runtime",
+            "performance critical",
+            "performance-critical",
+        ),
+
+        "safety": (
+            "memory safe",
+            "memory-safe",
+            "safe memory",
+            "type safe",
+            "type-safe",
+            "safety critical",
+            "safety-critical",
+            "secure",
+            "security critical",
+            "security-critical",
+        ),
+
+        "concurrency": (
+            "concurrent",
+            "concurrency",
+            "parallel",
+            "parallelism",
+            "multithreaded",
+            "multi-threaded",
+            "multithreading",
+            "massively concurrent",
+        ),
+
+        "systems": (
+            "systems programming",
+            "systems component",
+            "system component",
+            "kernel",
+            "device driver",
+            "hardware driver",
+            "operating system",
+            "low level",
+            "low-level",
+            "runtime implementation",
+            "compiler",
+        ),
+
+        "embedded": (
+            "embedded",
+            "microcontroller",
+            "firmware",
+            "bare metal",
+            "bare-metal",
+            "iot device",
+            "embedded device",
+        ),
+
+        "web": (
+            "web",
+            "website",
+            "web application",
+            "web app",
+            "http",
+            "rest api",
+            "graphql",
+            "browser application",
+        ),
+
+        "frontend": (
+            "frontend",
+            "front-end",
+            "user interface",
+            "ui",
+            "react",
+            "vue",
+            "angular",
+            "svelte",
+            "browser frontend",
+            "web frontend",
+        ),
+
+        "backend": (
+            "backend",
+            "back-end",
+            "api server",
+            "web server",
+            "microservice",
+            "microservices",
+            "backend service",
+        ),
+
+        "mobile": (
+            "mobile",
+            "android",
+            "android app",
+            "android application",
+            "ios",
+            "iphone",
+            "ipad",
+            "mobile application",
+        ),
+
+        "ai_ml": (
+            "artificial intelligence",
+            "machine learning",
+            "machine-learning",
+            "deep learning",
+            "deep-learning",
+            "neural network",
+            "neural-network",
+            "large language model",
+            "computer vision",
+            "image recognition",
+            "image classification",
+            "object detection",
+        ),
+
+        "data_science": (
+            "data science",
+            "data analysis",
+            "analytics",
+            "statistical analysis",
+            "scientific computing",
+            "numerical analysis",
+        ),
+
+        "realtime": (
+            "real-time",
+            "realtime",
+            "real time",
+            "live processing",
+            "real-time processing",
+            "real-time system",
+        ),
+    }
+
+    _LANGUAGE_ALIASES = {
+        "c++": "C++",
+        "cpp": "C++",
+        "cplusplus": "C++",
+        "c": "C",
+        "rust": "Rust",
+        "golang": "Go",
+        "go": "Go",
+        "python": "Python",
+        "python3": "Python",
+        "javascript": "JavaScript",
+        "js": "JavaScript",
+        "typescript": "TypeScript",
+        "ts": "TypeScript",
+        "java": "Java",
+        "kotlin": "Kotlin",
+        "swift": "Swift",
+        "c#": "C#",
+        "csharp": "C#",
+        "dart": "Dart",
+        "ruby": "Ruby",
+        "php": "PHP",
+        "r": "R",
+        "julia": "Julia",
+        "lua": "Lua",
+        "scala": "Scala",
+        "haskell": "Haskell",
+        "elixir": "Elixir",
+        "zig": "Zig",
+    }
+
+    def __init__(self, registry: LanguageRegistry | None = None):
+        self.registry = registry or LanguageRegistry()
+
+    def select(
+        self,
+        request: str,
+        *,
+        requirements: LanguageRequirements | None = None,
+        project_root: str | None = None,
+        preferred_languages: list[str] | None = None,
+    ) -> LanguageSelection:
+
+        if not request or not request.strip():
+            raise ValueError("Coding request cannot be empty.")
+
+        requirements = requirements or self.analyze_requirements(request)
+
+        project_languages = (
+            self.registry.detect_project(project_root)
+            if project_root
+            else []
+        )
+
+        candidates = []
+
+        for spec in self.registry.all():
+            candidate = self._score(
+                spec,
+                requirements,
+                project_languages,
+                preferred_languages or [],
+            )
+
+            if candidate is not None:
+                candidates.append(candidate)
+
+        candidates.sort(
+            key=lambda candidate: candidate.score,
+            reverse=True,
+        )
+
+        if not candidates:
+            return LanguageSelection(
+                selected=None,
+                alternatives=(),
+                requirements=requirements,
+                confidence=0.0,
+                explanation="No usable language/toolchain was found.",
+            )
+
+        selected = candidates[0]
+
+        confidence = self._confidence(
+            selected,
+            candidates,
+            requirements,
+        )
+
+        return LanguageSelection(
+            selected=selected,
+            alternatives=tuple(candidates[1:6]),
+            requirements=requirements,
+            confidence=confidence,
+            explanation=self._explain(
+                selected,
+                requirements,
+            ),
+        )
+
+    def analyze_requirements(
+        self,
+        request: str,
+    ) -> LanguageRequirements:
+        """
+        Convert a natural-language coding request into explicit
+        engineering requirements.
+
+        This is intentionally deterministic. Language selection should
+        not depend on an LLM merely recognizing words such as "Android"
+        or "firmware".
+
+        The resulting requirements describe what the software needs,
+        not which language happens to be installed on the host.
+        """
+
+        if not request or not request.strip():
+            raise ValueError("Coding request cannot be empty.")
+
+        text = self._normalize(request)
+
+        values = {
+            dimension: self._signal_strength(text, signals)
+            for dimension, signals in self._SIGNALS.items()
+        }
+
+        explicit = self._detect_explicit_language(text)
+
+        constraints: dict[str, Any] = {}
+
+        def activate(dimension: str, value: float) -> None:
+            values[dimension] = max(
+                values.get(dimension, 0.0),
+                min(1.0, value),
+            )
+
+        # ---------------------------------------------------------
+        # Platform / domain recognition
+        # ---------------------------------------------------------
+
+        if self._contains(
+            text,
+            (
+                "android",
+                "android app",
+                "android application",
+                "android service",
+                "android library",
+            ),
+        ):
+            activate("mobile", 1.0)
+            constraints["platform"] = "android"
+
+        if self._contains(
+            text,
+            (
+                "ios",
+                "iphone",
+                "ipad",
+                "swiftui",
+            ),
+        ):
+            activate("mobile", 1.0)
+            constraints["platform"] = "ios"
+
+        if self._contains(
+            text,
+            (
+                "frontend",
+                "front end",
+                "browser frontend",
+                "browser application",
+                "web frontend",
+                "website",
+                "web app",
+                "react",
+                "vue",
+                "angular",
+            ),
+        ):
+            activate("frontend", 1.0)
+            activate("web", 1.0)
+            constraints["platform"] = constraints.get(
+                "platform",
+                "web",
+            )
+
+        if self._contains(
+            text,
+            (
+                "backend",
+                "back end",
+                "api server",
+                "web server",
+                "service",
+                "microservice",
+            ),
+        ):
+            activate("backend", 1.0)
+            activate("web", 0.7)
+
+        if self._contains(
+            text,
+            (
+                "embedded",
+                "firmware",
+                "microcontroller",
+                "micro-controller",
+                "bare metal",
+                "bare-metal",
+                "rtos",
+                "device driver",
+                "hardware driver",
+            ),
+        ):
+            activate("embedded", 1.0)
+            activate("systems", 0.9)
+            activate("realtime", 0.8)
+            constraints["platform"] = "embedded"
+
+        # ---------------------------------------------------------
+        # AI / scientific computing
+        # ---------------------------------------------------------
+
+        if self._contains(
+            text,
+            (
+                "machine learning",
+                "machine-learning",
+                "deep learning",
+                "deep-learning",
+                "neural network",
+                "neural-network",
+                "computer vision",
+                "image analysis",
+                "image recognition",
+                "image classification",
+                "object detection",
+                "ai model",
+                "artificial intelligence",
+            ),
+        ):
+            activate("ai_ml", 1.0)
+            activate("data_science", 0.8)
+
+        if self._contains(
+            text,
+            (
+                "data science",
+                "data analysis",
+                "numerical analysis",
+                "scientific computing",
+                "statistics",
+                "data processing",
+            ),
+        ):
+            activate("data_science", 1.0)
+
+        # ---------------------------------------------------------
+        # Performance / systems
+        # ---------------------------------------------------------
+
+        if self._contains(
+            text,
+            (
+                "high performance",
+                "high-performance",
+                "low latency",
+                "low-latency",
+                "ultra low latency",
+                "ultra-low latency",
+                "maximum performance",
+                "absolute performance",
+                "fastest possible",
+                "real time",
+                "real-time",
+            ),
+        ):
+            activate("performance", 1.0)
+
+        if self._contains(
+            text,
+            (
+                "concurrent",
+                "concurrency",
+                "parallel",
+                "parallelism",
+                "multithreaded",
+                "multi-threaded",
+                "highly concurrent",
+            ),
+        ):
+            activate("concurrency", 1.0)
+
+        if self._contains(
+            text,
+            (
+                "systems programming",
+                "systems component",
+                "system component",
+                "operating system",
+                "kernel",
+                "runtime",
+                "compiler",
+                "memory safe",
+                "memory-safe",
+            ),
+        ):
+            activate("systems", 1.0)
+
+        if self._contains(
+            text,
+            (
+                "memory safe",
+                "memory-safe",
+                "safe memory",
+                "type safe",
+                "type-safe",
+            ),
+        ):
+            activate("safety", 1.0)
+
+        # ---------------------------------------------------------
+        # Rapid development / automation
+        # ---------------------------------------------------------
+
+        if self._contains(
+            text,
+            (
+                "quick automation",
+                "automation script",
+                "automation",
+                "scripting",
+                "workflow automation",
+                "task automation",
+                "prototype",
+                "quick prototype",
+                "rapid prototype",
+                "build quickly",
+            ),
+        ):
+            activate("development_speed", 1.0)
+
+            if self._contains(
+                text,
+                (
+                    "automation",
+                    "automation script",
+                    "scripting",
+                    "workflow automation",
+                    "task automation",
+                ),
+            ):
+                constraints["application_type"] = "automation"
+
+        # ---------------------------------------------------------
+        # Explicit language request
+        # ---------------------------------------------------------
+
+        if explicit:
+            constraints["explicit_language"] = explicit
+
+        # ---------------------------------------------------------
+        # Strong user constraints
+        # ---------------------------------------------------------
+
+        if self._contains(
+            text,
+            (
+                "portable",
+                "cross platform",
+                "cross-platform",
+                "platform independent",
+                "platform-independent",
+            ),
+        ):
+            activate("portability", 1.0)
+
+        if self._contains(
+            text,
+            (
+                "large ecosystem",
+                "mature ecosystem",
+                "maximum library support",
+                "widely supported",
+            ),
+        ):
+            activate("ecosystem", 1.0)
+
+                    # =========================================================
+        # WEB / FRONTEND APPLICATION DETECTION
+        # =========================================================
+        #
+        # A dashboard is normally a browser-facing application.
+        # Treat explicit dashboard/frontend/web-app language as a
+        # web platform constraint so the selector does not fall
+        # back to unrelated general-purpose languages.
+        #
+
+        if self._contains(
+            text,
+            (
+                "web dashboard",
+                "browser dashboard",
+                "dashboard",
+                "web app",
+                "web application",
+                "browser application",
+                "browser app",
+                "frontend",
+                "front-end",
+                "user interface",
+                
+            ),
+        ):
+            activate("web", 1.0)
+            activate("frontend", 1.0)
+            constraints["platform"] = "web"
+
+        return LanguageRequirements(
+            performance=values.get("performance", 0.0),
+            safety=values.get("safety", 0.0),
+            portability=values.get("portability", 0.0),
+            ecosystem=values.get("ecosystem", 0.0),
+            development_speed=values.get(
+                "development_speed",
+                0.0,
+            ),
+            concurrency=values.get("concurrency", 0.0),
+            systems=values.get("systems", 0.0),
+            web=values.get("web", 0.0),
+            mobile=values.get("mobile", 0.0),
+            embedded=values.get("embedded", 0.0),
+            ai_ml=values.get("ai_ml", 0.0),
+            data_science=values.get(
+                "data_science",
+                0.0,
+            ),
+            backend=values.get("backend", 0.0),
+            frontend=values.get("frontend", 0.0),
+            realtime=values.get("realtime", 0.0),
+            explicit_language=explicit,
+            constraints=constraints,
+        )
+
+    def _score(
+        self,
+        spec: LanguageSpec,
+        requirements: LanguageRequirements,
+        project_languages: list[LanguageSpec],
+        preferred_languages: list[str],
+    ) -> LanguageCandidate | None:
+
+        tools = self.registry.available_toolchains(spec)
+        available = any(tools.values())
+
+        explicit = requirements.explicit_language
+        constraints = requirements.constraints
+
+        # Resolve global architectural constraints before the
+        # explicit-language branch. These values are also used by
+        # the final architecture-priority stage.
+        platform = constraints.get("platform")
+        application_type = constraints.get("application_type")
+
+        reasons: list[str] = []
+        penalties: list[str] = []
+
+        # =========================================================
+        # EXPLICIT LANGUAGE
+        # =========================================================
+
+        if explicit:
+            if spec.name.lower() != explicit.lower():
+                return None
+
+            fit = 1.0
+            reasons.append("language explicitly requested")
+
+        else:
+            # =====================================================
+            # NORMALIZED ENGINEERING FIT
+            #
+            # Each dimension contributes proportionally rather
+            # than allowing the raw score to explode above 1.0.
+            # =====================================================
+
+            weighted_requirements = {
+                "performance": (spec.performance, requirements.performance, 2.2),
+                "safety": (spec.safety, requirements.safety, 1.8),
+                "portability": (
+                    spec.portability,
+                    requirements.portability,
+                    1.0,
+                ),
+                "ecosystem": (
+                    spec.ecosystem,
+                    requirements.ecosystem,
+                    1.0,
+                ),
+                "development_speed": (
+                    spec.development_speed,
+                    requirements.development_speed,
+                    1.4,
+                ),
+            }
+
+            numerator = 0.0
+            denominator = 0.0
+
+            for value, requirement, weight in weighted_requirements.values():
+                if requirement <= 0.0:
+                    continue
+
+                numerator += value * requirement * weight
+                denominator += requirement * weight
+
+            fit = (
+                numerator / denominator
+                if denominator > 0.0
+                else 0.50
+            )
+
+            # =====================================================
+            # DOMAIN FIT
+            # =====================================================
+
+            domain_requirements = {
+                "concurrency": requirements.concurrency,
+                "systems": requirements.systems,
+                "web": requirements.web,
+                "frontend": requirements.frontend,
+                "mobile": requirements.mobile,
+                "embedded": requirements.embedded,
+                "ai_ml": requirements.ai_ml,
+                "data_science": requirements.data_science,
+                "backend": requirements.backend,
+                "realtime": requirements.realtime,
+            }
+
+            domain_weights = {
+                "concurrency": 1.0,
+                "systems": 1.0,
+                "web": 1.0,
+                "frontend": 1.0,
+                "mobile": 1.0,
+                "embedded": 1.0,
+                "ai_ml": 1.0,
+                "data_science": 1.0,
+                "backend": 1.0,
+                "realtime": 1.0,
+            }
+
+            domain_text = " ".join(
+                spec.strengths + spec.paradigms
+            ).lower()
+
+            domain_matches = {
+                "concurrency": (
+                    "concurrent",
+                    "concurrency",
+                    "parallel",
+                ),
+                "systems": (
+                    "systems",
+                    "system",
+                    "low-level",
+                ),
+                "web": (
+                    "web",
+                    "browser",
+                ),
+                "frontend": (
+                    "frontend",
+                    "web",
+                    "full-stack",
+                ),
+                "mobile": (
+                    "mobile",
+                    "android",
+                    "ios",
+                ),
+                "embedded": (
+                    "embedded",
+                    "firmware",
+                    "hardware",
+                ),
+                "ai_ml": (
+                    "ai",
+                    "machine",
+                    "ml",
+                    "scientific",
+                ),
+                "data_science": (
+                    "scientific",
+                    "numerical",
+                    "data",
+                ),
+                "backend": (
+                    "backend",
+                    "server",
+                ),
+                "realtime": (
+                    "real-time",
+                    "realtime",
+                    "streaming",
+                ),
+            }
+
+            domain_numerator = 0.0
+            domain_denominator = 0.0
+
+            for domain, requirement in domain_requirements.items():
+                if requirement <= 0.0:
+                    continue
+
+                weight = domain_weights[domain]
+                domain_denominator += requirement * weight
+
+                matches = sum(
+                    keyword in domain_text
+                    for keyword in domain_matches[domain]
+                )
+
+                domain_fit = min(1.0, matches / 2.0)
+
+                domain_numerator += (
+                    domain_fit
+                    * requirement
+                    * weight
+                )
+
+            if domain_denominator > 0.0:
+                domain_score = (
+                    domain_numerator / domain_denominator
+                )
+
+                # Domain fit is important, but doesn't completely
+                # overpower core engineering characteristics.
+                fit = (
+                    fit * 0.60
+                    + domain_score * 0.40
+                )
+
+            # =====================================================
+            # PLATFORM CONSTRAINTS
+            # =====================================================
+
+            platform_languages = {
+                # Native platform languages only.
+                "android": {
+                    "Kotlin",
+                    "Java",
+                },
+                "ios": {
+                    "Swift",
+                },
+                "web": {
+                    "TypeScript",
+                    "JavaScript",
+                },
+                "embedded": {
+                    "C",
+                    "C++",
+                    "Rust",
+                    "Zig",
+                },
+            }
+
+            if platform:
+                supported = platform_languages.get(platform)
+
+                if supported and spec.name not in supported:
+                    return None
+
+                if supported:
+                    platform_fit = {
+                        "android": {
+                            "Kotlin": 1.00,
+                            "Java": 0.90,
+                        },
+                        "ios": {
+                            "Swift": 1.00,
+                        },
+                        "web": {
+                            "TypeScript": 1.00,
+                            "JavaScript": 0.98,
+                        },
+                        "embedded": {
+                            "C": 1.00,
+                            "C++": 0.98,
+                            "Rust": 0.97,
+                            "Zig": 0.88,
+                        },
+                    }
+
+                    platform_score = platform_fit.get(
+                        platform,
+                        {},
+                    ).get(spec.name, 0.50)
+
+                    fit = (
+                        fit * 0.65
+                        + platform_score * 0.35
+                    )
+
+                    reasons.append(
+                        f"strong fit for {platform} platform"
+                    )
+
+            # =====================================================
+            # APPLICATION TYPE
+            # =====================================================
+
+            if application_type == "automation":
+                automation_fit = {
+                    "Python": 1.00,
+                    "JavaScript": 0.90,
+                    "TypeScript": 0.88,
+                    "Ruby": 0.82,
+                    "Go": 0.65,
+                    "Rust": 0.55,
+                    "C++": 0.45,
+                    "C": 0.40,
+                }
+
+                value = automation_fit.get(
+                    spec.name,
+                    0.40,
+                )
+
+                # Explicit automation requests strongly favor
+                # mature scripting ecosystems.
+                fit = (
+                    fit * 0.45
+                    + value * 0.55
+                )
+
+                if spec.name == "Python":
+                    reasons.append(
+                        "excellent automation ecosystem"
+                    )
+
+                # Automation/prototyping should strongly prefer
+                # purpose-built scripting languages. Installed
+                # toolchains must not overpower domain fit.
+                if spec.name == "Python":
+                    fit += 0.12
+                elif spec.name in {"JavaScript", "TypeScript"}:
+                    fit -= 0.02
+
+                fit = max(0.0, min(1.0, fit))
+
+            # =====================================================
+            # SPECIALIZED ENGINEERING PREFERENCES
+            # =====================================================
+
+            if requirements.ai_ml >= 0.7:
+                ai_fit = {
+                    "Python": 1.00,
+                    "C++": 0.82,
+                    "Rust": 0.78,
+                    "Julia": 0.85,
+                    "R": 0.82,
+                }
+
+                value = ai_fit.get(spec.name, 0.30)
+
+                fit = fit * 0.70 + value * 0.30
+
+                if spec.name == "Python":
+                    reasons.append(
+                        "strong AI/ML ecosystem"
+                    )
+
+            if (
+                requirements.performance >= 0.7
+                or requirements.concurrency >= 0.7
+                or requirements.systems >= 0.7
+            ):
+                systems_fit = {
+                    "Rust": 1.00,
+                    "C++": 0.96,
+                    "C": 0.95,
+                    "Go": 0.92,
+                    "Zig": 0.94,
+                    "Swift": 0.78,
+                    "Java": 0.75,
+                    "Python": 0.45,
+                    "JavaScript": 0.55,
+                    "TypeScript": 0.55,
+                }
+
+                value = systems_fit.get(spec.name, 0.50)
+
+                fit = fit * 0.70 + value * 0.30
+
+                if value >= 0.90:
+                    reasons.append(
+                        "strong systems performance characteristics"
+                    )
+
+            if requirements.safety >= 0.7:
+                if spec.safety >= 0.90:
+                    reasons.append(
+                        "strong safety characteristics"
+                    )
+                elif spec.safety < 0.70:
+                    penalties.append(
+                        "weaker safety characteristics"
+                    )
+
+        # =========================================================
+        # AVAILABILITY
+        #
+        # Toolchain availability matters, but it must not override
+        # a materially better architectural language choice.
+        #
+        # For constrained platforms such as Android and embedded,
+        # the canonical/native language remains preferable even when
+        # its toolchain is not installed yet. ULTRON can then report
+        # the missing toolchain and install/provision it later.
+        # =========================================================
+
+        if available:
+            fit *= 1.00
+            reasons.append(
+                "required toolchain is available"
+            )
+        else:
+            fit *= 0.55
+            penalties.append(
+                "toolchain is not currently installed"
+            )
+
+        # =========================================================
+        # ARCHITECTURAL PLATFORM PRIORITY
+        #
+        # Platform-native languages must beat merely available
+        # cross-platform alternatives.
+        #
+        # This is intentionally applied after availability so that
+        # an unavailable Kotlin does not lose to an available
+        # TypeScript/JavaScript implementation for Android.
+        # =========================================================
+
+        native_platform_priority = {
+            "android": {
+                "Kotlin": 0.35,
+                "Java": 0.25,
+            },
+            "ios": {
+                "Swift": 0.35,
+            },
+            "web": {
+                "TypeScript": 0.20,
+                "JavaScript": 0.18,
+            },
+            "embedded": {
+                "C": 0.30,
+                "C++": 0.25,
+                "Rust": 0.22,
+            },
+        }
+
+        platform_priority = native_platform_priority.get(
+            platform,
+            {},
+        ).get(spec.name, 0.0)
+
+        if platform_priority:
+            fit = min(
+                1.0,
+                fit + platform_priority,
+            )
+            reasons.append(
+                "platform-native language priority"
+            )
+
+        # =========================================================
+        # APPLICATION ARCHITECTURE PRIORITY
+        #
+        # Explicit application types should meaningfully influence
+        # the final decision rather than being a weak tie-breaker.
+        # =========================================================
+
+        if application_type == "automation":
+            automation_priority = {
+                "Python": 0.30,
+                "JavaScript": 0.10,
+                "TypeScript": 0.08,
+            }.get(spec.name, 0.0)
+
+            if automation_priority:
+                fit = min(
+                    1.0,
+                    fit + automation_priority,
+                )
+
+                if spec.name == "Python":
+                    reasons.append(
+                        "primary automation language"
+                    )
+
+        # =========================================================
+        # EXISTING PROJECT LANGUAGE
+        # =========================================================
+
+        if project_languages:
+            project_names = {
+                language.name.lower()
+                for language in project_languages
+            }
+
+            if spec.name.lower() in project_names:
+                fit = min(
+                    1.0,
+                    fit + 0.05,
+                )
+
+                reasons.append(
+                    "language is already used by the project"
+                )
+
+        # =========================================================
+        # USER PREFERENCE
+        # =========================================================
+
+        preferred = {
+            item.lower()
+            for item in preferred_languages
+        }
+
+        if spec.name.lower() in preferred:
+            fit = min(
+                1.0,
+                fit + 0.03,
+            )
+
+            reasons.append(
+                "language is user-preferred"
+            )
+
+        # =========================================================
+        # FINAL NORMALIZED SCORE
+        # =========================================================
+
+        score = round(
+            max(
+                0.0,
+                min(100.0, fit * 100.0),
+            ),
+            2,
+        )
+
+        return LanguageCandidate(
+            language=spec.name,
+            score=score,
+            available=available,
+            toolchain=tools,
+            reasons=tuple(dict.fromkeys(reasons)),
+            penalties=tuple(dict.fromkeys(penalties)),
+        )
+
+    def _domain_score(
+        self,
+        spec: LanguageSpec,
+        requirements: LanguageRequirements,
+    ) -> float:
+
+        language_text = " ".join(
+            spec.strengths
+            + spec.paradigms
+            + spec.weaknesses
+        ).lower()
+
+        # Domain -> importance multiplier.
+        domain_weights = {
+            "concurrency": 0.16,
+            "systems": 0.18,
+            "web": 0.10,
+            "frontend": 0.18,
+            "mobile": 0.18,
+            "embedded": 0.20,
+            "ai_ml": 0.18,
+            "data_science": 0.15,
+            "backend": 0.12,
+            "realtime": 0.16,
+        }
+
+        keyword_map = {
+            "concurrency": (
+                "concurrent",
+                "concurrency",
+                "parallel",
+                "multithread",
+                "actor",
+                "async",
+            ),
+            "systems": (
+                "systems",
+                "system",
+                "low-level",
+                "kernel",
+                "operating system",
+                "runtime",
+            ),
+            "web": (
+                "web",
+                "server",
+                "http",
+                "api",
+            ),
+            "frontend": (
+                "frontend",
+                "front-end",
+                "browser",
+                "ui",
+                "user interface",
+            ),
+            "mobile": (
+                "android",
+                "ios",
+                "mobile",
+                "smartphone",
+            ),
+            "embedded": (
+                "embedded",
+                "firmware",
+                "microcontroller",
+                "mcu",
+                "hardware",
+            ),
+            "ai_ml": (
+                "ai",
+                "machine learning",
+                "ml",
+                "deep learning",
+                "neural network",
+                "computer vision",
+                "image analysis",
+            ),
+            "data_science": (
+                "data science",
+                "statistics",
+                "statistical",
+                "numerical",
+                "scientific",
+                "data analysis",
+            ),
+            "backend": (
+                "backend",
+                "back-end",
+                "server",
+                "service",
+                "microservice",
+            ),
+            "realtime": (
+                "real-time",
+                "realtime",
+                "low latency",
+                "latency",
+                "real time",
+            ),
+        }
+
+        score = 0.0
+
+        for requirement, weight in domain_weights.items():
+            intensity = getattr(
+                requirements,
+                requirement,
+                0.0,
+            )
+
+            if intensity <= 0:
+                continue
+
+            keywords = keyword_map.get(
+                requirement,
+                (),
+            )
+
+            matches = sum(
+                keyword in language_text
+                for keyword in keywords
+            )
+
+            if not matches:
+                continue
+
+            # Saturating contribution prevents one verbose language
+            # description from dominating the entire ranking.
+            match_strength = min(
+                1.0,
+                0.35 + (matches * 0.18),
+            )
+
+            score += (
+                intensity
+                * weight
+                * match_strength
+            )
+
+        return score
+
+    def _signal_strength(
+        self,
+        text: str,
+        signals: tuple[str, ...],
+    ) -> float:
+
+        matches = sum(
+            self._contains(text, (signal,))
+            for signal in signals
+        )
+
+        if matches == 0:
+            return 0.0
+
+        return min(
+            1.0,
+            0.35 + (matches * 0.15),
+        )
+
+    @staticmethod
+    def _contains(
+        text: str,
+        phrases: tuple[str, ...],
+    ) -> bool:
+
+        return any(
+            phrase.lower() in text
+            for phrase in phrases
+        )
+
+    @staticmethod
+    def _normalize(text: str) -> str:
+        return re.sub(
+            r"\s+",
+            " ",
+            text.lower().strip(),
+        )
+
+    def _detect_explicit_language(
+        self,
+        text: str,
+    ) -> str | None:
+
+        normalized = self._normalize(text)
+
+        for alias, language in self._LANGUAGE_ALIASES.items():
+            pattern = rf"(?<!\w){re.escape(alias)}(?!\w)"
+
+            if re.search(pattern, normalized):
+                return language
+
+        return None
+
+    @staticmethod
+    def _confidence(
+        selected: LanguageCandidate,
+        candidates: list[LanguageCandidate],
+        requirements: LanguageRequirements,
+    ) -> float:
+
+        if requirements.explicit_language:
+            return 1.0 if selected.available else 0.65
+
+        if len(candidates) == 1:
+            return 0.80 if selected.available else 0.45
+
+        gap = selected.score - candidates[1].score
+
+        confidence = 0.55 + min(
+            0.35,
+            max(0.0, gap) / 100.0,
+        )
+
+        if not selected.available:
+            confidence *= 0.65
+
+        return round(
+            min(0.99, confidence),
+            3,
+        )
+
+    @staticmethod
+    def _explain(
+        selected: LanguageCandidate,
+        requirements: LanguageRequirements,
+    ) -> str:
+
+        parts = [
+            f"Selected {selected.language}.",
+        ]
+
+        if selected.reasons:
+            parts.append(
+                "Reasons: "
+                + "; ".join(selected.reasons)
+                + "."
+            )
+
+        if selected.penalties:
+            parts.append(
+                "Considerations: "
+                + "; ".join(selected.penalties)
+                + "."
+            )
+
+        if requirements.explicit_language:
+            parts.append(
+                "The user explicitly requested this language."
+            )
+
+        return " ".join(parts)

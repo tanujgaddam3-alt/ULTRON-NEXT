@@ -1,0 +1,506 @@
+{
+  "schema_version": 1,
+  "manifest_status": "PRELIMINARY_NOT_DEPLOYABLE",
+  "observed_at": "2026-10-27T17:51+05:30",
+  "repository_root": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL",
+  "git_metadata": {
+    "available": false,
+    "evidence": "Workspace is not a Git repository; tracked/untracked status and source revision cannot be established.",
+    "implication": "The paths below are current filesystem observations, not a clean-tree or commit claim."
+  },
+  "release_id": null,
+  "archive_created": false,
+  "approved_file_allowlist": false,
+  "rollback_ready": false,
+  "scope_note": "Checksummed preliminary inventory of inspected entrypoints, high-confidence runtime surfaces, and qualification tests. It is not a complete application file closure or an approved bundle allowlist. Imports, package data, templates, dynamic loading, schemas, and service-specific runtime requirements have not been exhaustively resolved.",
+  "files": [
+    {
+      "path": "start-ultron.sh",
+      "component": "launcher",
+      "status": "required",
+      "reason": "Supported managed-service start entrypoint.",
+      "sha256": "bc0535bc36491407a02b6b2bd4cfbe43d44be31c2b8bdc05517b77b9ab4bea45",
+      "prerequisites": [".venv/bin/python", "scripts/ultron_service_manager.py"],
+      "file_origin": "Source launcher by path; Git tracking unknown."
+    },
+    {
+      "path": "stop-ultron.sh",
+      "component": "launcher",
+      "status": "required",
+      "reason": "Supported managed-service stop entrypoint.",
+      "sha256": "793717e978da647e48e608b5b9e4b4a9a45b1df82c18ebd7362dba053f9ffcee",
+      "prerequisites": [".venv/bin/python", "scripts/ultron_service_manager.py"],
+      "file_origin": "Source launcher by path; Git tracking unknown."
+    },
+    {
+      "path": "scripts/ultron_service_manager.py",
+      "component": "service manager",
+      "status": "required",
+      "reason": "Defines service start/stop, process ownership, readiness, supervision, lease, and control channel.",
+      "sha256": "b9a02815bf1d25679fa360fe04c0abcb8979b67dba99bab889af035878d1de97",
+      "prerequisites": ["Python 3.14 observed in current environment", "Linux /proc and Unix socket support", "ss executable"],
+      "file_origin": "Source module by path; Git tracking unknown."
+    },
+    {
+      "path": "main.py",
+      "component": "interactive application entrypoint",
+      "status": "optional",
+      "reason": "Separate interactive gateway/CLI path; must not run concurrently with the managed gateway on the same ports.",
+      "sha256": "78cf6bd26c9dbfc773808ab5e75ebbb870e17092bde631bbe81a8ae5d5af9aa3",
+      "prerequisites": ["Python runtime", "application dependencies"],
+      "file_origin": "Source entrypoint by path; Git tracking unknown."
+    },
+    {
+      "path": "requirements.txt",
+      "component": "Python dependency declarations",
+      "status": "required",
+      "reason": "Direct root dependency declarations; not a resolved lock.",
+      "sha256": "477a86422c89e4d26b245369f1f51f8a1d2ac6351e3d726b37ca200d520f1875",
+      "prerequisites": ["Approved package index and compatible Python environment"],
+      "file_origin": "Source manifest by path; Git tracking unknown."
+    },
+    {
+      "path": "interface/package.json",
+      "component": "frontend",
+      "status": "required",
+      "reason": "Declares the browser package metadata and Node built-in test command; no npm runtime dependencies are declared.",
+      "sha256": "cd4c688e5fa91512244210eee3764cec1f4ea93e7f0e37ff7318092adf39c58c",
+      "prerequisites": ["Node.js for frontend tests"],
+      "file_origin": "Source manifest by path; Git tracking unknown."
+    },
+    {
+      "path": "interface/index.html",
+      "component": "frontend",
+      "status": "required",
+      "reason": "Static operator-console document served by the managed frontend.",
+      "sha256": "1757994ca345488b20dc4dcd829ac016bca6803b8ce2c64d8800a05d673068ee",
+      "prerequisites": ["Static file server"],
+      "file_origin": "Static source asset; generated status not indicated by project scripts; Git tracking unknown."
+    },
+    {
+      "path": "interface/operator-console.js",
+      "component": "frontend",
+      "status": "required",
+      "reason": "Operator-console rendering and event handling.",
+      "sha256": "54833248a85400f67c028842d5b8c5ea6d9599745ded9f8258caefd47904fa39",
+      "prerequisites": ["Browser ES modules", "Frontend service contracts"],
+      "file_origin": "Source asset by path; Git tracking unknown."
+    },
+    {
+      "path": "interface/operator-console.css",
+      "component": "frontend",
+      "status": "required",
+      "reason": "Operator-console styling.",
+      "sha256": "c0361a68bb0551ee4a17d234a9d7e02d506166889e3a89676327c343e4a7bf8e",
+      "prerequisites": ["interface/index.html"],
+      "file_origin": "Source asset by path; Git tracking unknown."
+    },
+    {
+      "path": "interface/services/providers/websocketProvider.js",
+      "component": "frontend gateway provider",
+      "status": "required",
+      "reason": "Browser WebSocket transport and connection-state behavior.",
+      "sha256": "380f40b57743829464496611bc303b689c585c5ee391b92f3a34d1503b6b11ae",
+      "prerequisites": ["Loopback authentication helper", "Gateway event contract"],
+      "file_origin": "Source asset by path; Git tracking unknown."
+    },
+    {
+      "path": "interface/services/bridge.js",
+      "component": "frontend gateway provider",
+      "status": "required",
+      "reason": "Frontend provider/contract bridge.",
+      "sha256": "0eb6c11f5052624f030edf7b2291bd2a268846d37aebd9c8d9eec2fe35302dbf",
+      "prerequisites": ["Frontend contracts and provider"],
+      "file_origin": "Source asset by path; Git tracking unknown."
+    },
+    {
+      "path": "interface/services/renderCreAudioEvidence.js",
+      "component": "CRE frontend",
+      "status": "required",
+      "reason": "Renders persisted CRE audio/scene evidence in the frontend.",
+      "sha256": "a417ce5ca6069a62da8cb3083e81f72853e57f27e3c2ff3301830ecbab914d29",
+      "prerequisites": ["Authenticated CRE status/evidence response"],
+      "file_origin": "Source asset by path; Git tracking unknown."
+    },
+    {
+      "path": "ultron/infrastructure/container.py",
+      "component": "application composition",
+      "status": "required",
+      "reason": "Application Container and shared service wiring.",
+      "sha256": "faee0f67673e27d556d13c4384ce0fd6657c468cedcbe16e59302b5f83e54dfe",
+      "prerequisites": ["Python runtime dependencies", "Application package"],
+      "file_origin": "Source module by path; Git tracking unknown."
+    },
+    {
+      "path": "ultron/application/runtime/service_entrypoint.py",
+      "component": "gateway service",
+      "status": "required",
+      "reason": "Managed gateway entrypoint and runtime configuration.",
+      "sha256": "b0eb663cdc639c1bbbb4f16cca68f3f05a136093dce024ecd9b2f34ba9ee33b3",
+      "prerequisites": ["Container", "operations/CRE persistence", "gateway dependency"],
+      "file_origin": "Source module by path; Git tracking unknown."
+    },
+    {
+      "path": "ultron/application/runtime/interface_gateway.py",
+      "component": "authenticated gateway",
+      "status": "required",
+      "reason": "Authenticated WebSocket event handling, authorization, and subsystem requests.",
+      "sha256": "a132394e01580b5876ace535f77522380e96faf4301e84392cce569411fa7af0",
+      "prerequisites": ["websockets", "authentication implementation", "application services"],
+      "file_origin": "Source module by path; Git tracking unknown."
+    },
+    {
+      "path": "ultron/application/runtime/local_auth_helper.py",
+      "component": "authentication helper",
+      "status": "required",
+      "reason": "Loopback local-unlock and authenticated gateway proxy.",
+      "sha256": "4c7346fffbb4fa612c7e627c46073a0de264b4ead7d66bff5d379d6846237c4b",
+      "prerequisites": ["websockets", "exact configured origin allowlist", "loopback binding"],
+      "file_origin": "Source module by path; Git tracking unknown."
+    },
+    {
+      "path": "ultron/application/runtime/system_intelligence.py",
+      "component": "System Intelligence",
+      "status": "required",
+      "reason": "Read-only runtime observations and manager ownership preflight.",
+      "sha256": "3a85b8f4a30cde104997343d9df825dd89cba4bf6bd52ca15e55250605db404e",
+      "prerequisites": ["Authenticated gateway request", "host process/listener inspection tools"],
+      "file_origin": "Source module by path; Git tracking unknown."
+    },
+    {
+      "path": "ultron/application/content/service.py",
+      "component": "CRE backend",
+      "status": "required",
+      "reason": "CRE business service and owner-filtered status/evidence projection.",
+      "sha256": "3631b480d56accdd09c19ec05752ab8db9829987aa29d7785617c5ae1b79d376",
+      "prerequisites": ["Content store", "authenticated principal"],
+      "file_origin": "Source module by path; Git tracking unknown."
+    },
+    {
+      "path": "ultron/application/content/store.py",
+      "component": "CRE persistence",
+      "status": "required",
+      "reason": "CRE schema and persisted evidence storage implementation.",
+      "sha256": "c88b5bcf663f31c61e7ee9fe111f8023b67efcb8d6c57d332450215f80b10625",
+      "prerequisites": ["SQLite runtime", "approved schema/migration compatibility"],
+      "file_origin": "Source module by path; Git tracking unknown."
+    },
+    {
+      "path": "ultron/application/content/script_scenes.py",
+      "component": "CRE scene generation",
+      "status": "required",
+      "reason": "Scene/artifact contract and preparation path.",
+      "sha256": "f7e58fa9243f3caebf60fb3fa1c1811f9e0f6eb4be69f6d01cb94f1330523597",
+      "prerequisites": ["CRE persistence and rendering services"],
+      "file_origin": "Source module by path; Git tracking unknown."
+    },
+    {
+      "path": "ultron/application/content/script_preview.py",
+      "component": "CRE preview",
+      "status": "required",
+      "reason": "Synthetic preview workflow used by CRE.",
+      "sha256": "ea146314f75eb621f7860ef91e16ca07a9c3c211427ceb64145e076604d6ffa7",
+      "prerequisites": ["CRE service", "preview persistence"],
+      "file_origin": "Source module by path; Git tracking unknown."
+    },
+    {
+      "path": "ultron/application/content/rendering.py",
+      "component": "CRE rendering",
+      "status": "required",
+      "reason": "Rendering integration and artifact output contract.",
+      "sha256": "bde9e036cd486cd35d2782d35301653a8cb15fe7c6d2e1afccd27416f1d3cb14",
+      "prerequisites": ["Configured renderer; mock/simulation limits remain visible"],
+      "file_origin": "Source module by path; Git tracking unknown."
+    },
+    {
+      "path": "ultron/financial/bootstrap.py",
+      "component": "financial and trading",
+      "status": "required",
+      "reason": "Financial subsystem composition and safety-gated setup.",
+      "sha256": "80fd6afe4ef8fa4cc52b3b6c4dbc069333ca8fe474172592720ecc82e53750e1",
+      "prerequisites": ["Financial provider dependencies", "simulation/paper safety configuration"],
+      "file_origin": "Source module by path; Git tracking unknown."
+    },
+    {
+      "path": "ultron/voice/server.py",
+      "component": "voice service",
+      "status": "required",
+      "reason": "Managed voice HTTP service; launcher selects the Edge engine.",
+      "sha256": "acdf687e2799b6405df35be5db8fbffc694c71279c3c779b4ce594c92bf9b716",
+      "prerequisites": ["edge-tts and voice runtime dependencies", "loopback port 8765"],
+      "file_origin": "Source module by path; Git tracking unknown."
+    },
+    {
+      "path": "ultron/config/ultron_voice.json",
+      "component": "voice configuration",
+      "status": "optional",
+      "reason": "Voice engine configuration; managed launcher explicitly overrides engine to Edge.",
+      "sha256": "32063f139ea37b0238f09d7a796a8141e4037576aede094c4fa64c841c87fbf7",
+      "prerequisites": ["Voice server"],
+      "file_origin": "Configuration file by path; verify deployment-specific selection; Git tracking unknown."
+    },
+    {
+      "path": "run_financial_dashboard.sh",
+      "component": "standalone financial dashboard",
+      "status": "optional",
+      "reason": "Separate Streamlit dashboard, not part of the managed operator-console service set.",
+      "sha256": "aca95464de6f428f6f9f4ef9653778eebf32b6a3f4df554b135207ed92a081fa",
+      "prerequisites": ["Streamlit", "financial provider configuration", "simulation/paper gates"],
+      "file_origin": "Source launcher by path; Git tracking unknown."
+    },
+    {
+      "path": "dashboard/financial_dashboard.py",
+      "component": "standalone financial dashboard",
+      "status": "optional",
+      "reason": "Financial data and paper-trade dashboard implementation.",
+      "sha256": "5540a2098f9cdf19ee8e61adcaacf65bbea8307628b7e126fcb8bd6190670c9f",
+      "prerequisites": ["Streamlit", "Container", "financial dependencies"],
+      "file_origin": "Source module by path; Git tracking unknown."
+    },
+    {
+      "path": "ultron/learning/teacher/pdf_loader.py",
+      "component": "learning/PDF ingestion",
+      "status": "optional",
+      "reason": "Teacher educational PDF text extraction; direct PyMuPDF use.",
+      "sha256": "945982bdd8336457af27ab2a044004625278bddfbaf49744a367f36f79ced99c",
+      "prerequisites": ["PyMuPDF; license approval unresolved"],
+      "file_origin": "Source module by path; Git tracking unknown."
+    },
+    {
+      "path": "ultron/learning/teacher/loaders/pdf_loader.py",
+      "component": "learning/PDF ingestion",
+      "status": "optional",
+      "reason": "Registered teacher document-loader PDF implementation; direct PyMuPDF use.",
+      "sha256": "308a7a0918dab5626a3769b825f19c07b3aa472472143736a52b37c54f959937",
+      "prerequisites": ["PyMuPDF; license approval unresolved"],
+      "file_origin": "Source module by path; Git tracking unknown."
+    },
+    {
+      "path": "ultron/learning/document/analyzer.py",
+      "component": "learning/PDF analysis",
+      "status": "optional",
+      "reason": "Education document analysis and PDF page counting via fitz.",
+      "sha256": "9067085b7589d97d2b1c9991b2a176fe9037616a9ae062ed931aa2db04c943e6",
+      "prerequisites": ["PyMuPDF; license approval unresolved"],
+      "file_origin": "Source module by path; Git tracking unknown."
+    },
+    {
+      "path": "requirements-financial-ml.txt",
+      "component": "optional financial research",
+      "status": "optional",
+      "reason": "Separate CPU-only historical research/model-evaluation dependencies.",
+      "sha256": "f607c759779cfb2a44fd381b70eba1597de4f96209882f7414cfce6eaf5a7e47",
+      "prerequisites": ["Install only for the separately selected financial ML workflow"],
+      "file_origin": "Source manifest by path; Git tracking unknown."
+    },
+    {
+      "path": "scripts/ultron_release_bundle.py",
+      "component": "release tooling",
+      "status": "required",
+      "reason": "Builds/verifies/restores explicit allowlisted archives; does not determine the allowlist.",
+      "sha256": "42dae31f187ed86a710e13f521695f5720795426bf62b1ebb2e67e4488f529f0",
+      "prerequisites": ["Python standard library", "Operator-approved file list"],
+      "file_origin": "Source utility by path; Git tracking unknown."
+    },
+    {
+      "path": "scripts/ultron_sqlite_backup.py",
+      "component": "database recovery tooling",
+      "status": "required",
+      "reason": "SQLite online backup, verification, and separate restore utility.",
+      "sha256": "00f99b7501c3f3c9f1bbea631fd269de440c2fd1b2fdd276517af650d96c514a",
+      "prerequisites": ["Python sqlite3", "Explicitly approved schema expectations"],
+      "file_origin": "Source utility by path; Git tracking unknown."
+    },
+    {
+      "path": "scripts/ultron_maintenance_journal.py",
+      "component": "maintenance/recovery tooling",
+      "status": "optional",
+      "reason": "Durable maintenance journal utility; maintenance procedure has not been run.",
+      "sha256": "455417c76e378010fd718683bc6204563716eca9769f63c36fa1793552e65051",
+      "prerequisites": ["Protected state directory", "Operator authorization"],
+      "file_origin": "Source utility by path; Git tracking unknown."
+    },
+    {
+      "path": "tests/runtime/test_service_manager.py",
+      "component": "manager qualification tests",
+      "status": "optional-test-only",
+      "reason": "Isolated child-process ownership, lease, control channel, restart, and recovery regression tests.",
+      "sha256": "922a49bdc71e6e50a442b828be8b0df2e98b38e0d725732419d02fabf09e14c2",
+      "prerequisites": ["pytest", "loopback ephemeral ports", "temporary state"],
+      "file_origin": "Test source by path; Git tracking unknown."
+    },
+    {
+      "path": "tests/runtime/test_maintenance_transition.py",
+      "component": "maintenance qualification tests",
+      "status": "optional-test-only",
+      "reason": "Isolated maintenance transition regression tests.",
+      "sha256": "818f9b94547121a2ec829ee5f0d6687311211cd76415cc13dbbaac34f12b6d45",
+      "prerequisites": ["pytest", "temporary test state"],
+      "file_origin": "Test source by path; Git tracking unknown."
+    },
+    {
+      "path": "tests/runtime/test_release_bundle.py",
+      "component": "release qualification tests",
+      "status": "optional-test-only",
+      "reason": "Temporary fixture tests for deterministic archive, manifest, and restore behavior.",
+      "sha256": "f50b4e12c6f24f4ff1d15a8936c46bd9f9102b865fb97461624d987adddea206",
+      "prerequisites": ["pytest", "temporary directory"],
+      "file_origin": "Test source by path; Git tracking unknown."
+    },
+    {
+      "path": "tests/runtime/test_sqlite_backup.py",
+      "component": "backup qualification tests",
+      "status": "optional-test-only",
+      "reason": "Temporary WAL-mode online backup, integrity, permission, checksum, and restore tests.",
+      "sha256": "cdd0c1b42e06d00acef3bcf690dcf18b99a53d6b5209a4a9a2abfab27f625507",
+      "prerequisites": ["pytest", "temporary SQLite databases"],
+      "file_origin": "Test source by path; Git tracking unknown."
+    },
+    {
+      "path": "tests/interface/test_interface_gateway_cre_status.py",
+      "component": "CRE gateway qualification tests",
+      "status": "optional-test-only",
+      "reason": "Automated CRE status contract tests; executed in the current focused test matrix.",
+      "sha256": "a7524603aa70fba9697217c3235d7bfdc9e53c0beea4b61f7af0f6a79b2c36fd",
+      "prerequisites": ["pytest", "isolated CRE test fixture"],
+      "file_origin": "Test source by path; Git tracking unknown."
+    },
+    {
+      "path": "tests/interface/test_interface_gateway_system_intelligence.py",
+      "component": "System Intelligence gateway qualification tests",
+      "status": "optional-test-only",
+      "reason": "Automated System Intelligence contract tests; executed in the current focused test matrix.",
+      "sha256": "16b5788fc563aa523a2ef0a0d88cc2bb9aaa6e752be1b1933aa9bde9bd257948",
+      "prerequisites": ["pytest", "isolated gateway fixture"],
+      "file_origin": "Test source by path; Git tracking unknown."
+    },
+    {
+      "path": "tests/interface/test_local_auth_helper.py",
+      "component": "authentication qualification tests",
+      "status": "optional-test-only",
+      "reason": "Automated local helper tests; executed in the current focused test matrix.",
+      "sha256": "1d4a2eec2520542710cd83b57bd5aa171c90c2b58284de581a7d4e73ee5883b6",
+      "prerequisites": ["pytest", "isolated loopback fixture"],
+      "file_origin": "Test source by path; Git tracking unknown."
+    },
+    {
+      "path": "tests/interface/test_interface_authentication.py",
+      "component": "authentication qualification tests",
+      "status": "optional-test-only",
+      "reason": "Automated gateway authentication tests; executed in the current focused test matrix.",
+      "sha256": "b1c95046b255493b67bcefe18dcc90cc1806a6135021b4a710cd6ea51122e289",
+      "prerequisites": ["pytest", "isolated auth fixture"],
+      "file_origin": "Test source by path; Git tracking unknown."
+    },
+    {
+      "path": "interface/tests/creStatus.test.mjs",
+      "component": "frontend CRE qualification tests",
+      "status": "optional-test-only",
+      "reason": "Frontend CRE status tests; part of the executed frontend test command.",
+      "sha256": "d650419bd0d8399ece36a7a47ec7ea7d6ea6886dd8ea3b1abbfd686ca59e2cc7",
+      "prerequisites": ["Node.js built-in test runner"],
+      "file_origin": "Test source by path; Git tracking unknown."
+    },
+    {
+      "path": "interface/tests/websocketProvider.test.mjs",
+      "component": "frontend gateway qualification tests",
+      "status": "optional-test-only",
+      "reason": "Frontend WebSocket provider tests; part of the executed frontend test command.",
+      "sha256": "244d3c7bbcc5b4f68ab2a92e62073449156fef6861bcdd2fad46158938b17a81",
+      "prerequisites": ["Node.js built-in test runner"],
+      "file_origin": "Test source by path; Git tracking unknown."
+    },
+    {
+      "path": "interface/tests/runtimeEvents.test.mjs",
+      "component": "frontend System Intelligence qualification tests",
+      "status": "optional-test-only",
+      "reason": "Frontend runtime-event tests; part of the executed frontend test command.",
+      "sha256": "3151a7a2854466741194655bbfe503102fce722b9874f41bb65d5737a9adaafc",
+      "prerequisites": ["Node.js built-in test runner"],
+      "file_origin": "Test source by path; Git tracking unknown."
+    }
+  ],
+  "dependencies": {
+    "direct_declared_root_requirements": [
+      "loguru==0.7.3",
+      "pydantic==2.13.4",
+      "pydantic-settings==2.14.2",
+      "pypdf",
+      "requests",
+      "openai",
+      "pymupdf",
+      "certifi>=2026.10.18",
+      "websockets",
+      "streamlit",
+      "alpaca-py",
+      "yfinance",
+      "pandas",
+      "edge-tts>=7.3.1",
+      "soundfile",
+      "Pillow>=11.3",
+      "PyJWT>=2.8,<3",
+      "cryptography>=42",
+      "growwapi>=1.5.0"
+    ],
+    "optional_financial_ml_declarations": [
+      "numpy>=1.26",
+      "pandas>=2.0",
+      "scikit-learn>=1.4",
+      "joblib>=1.3"
+    ],
+    "frontend": {
+      "manifest": "interface/package.json",
+      "declared_npm_dependencies": [],
+      "test_runtime": "Node.js built-in node:test"
+    },
+    "reference_staging": {
+      "manifest": "ultron/voice/reference_staging/xtts-cpu-inference-20261017T2247/requirements.lock.txt",
+      "transformers": "4.57.6",
+      "include_in_core_release": false,
+      "reason": "Nested XTTS reference environment, not used by the managed voice command which selects Edge."
+    },
+    "transitive_dependencies": {
+      "status": "NOT_RESOLVED",
+      "reason": "No complete pinned lock for the supported runtime was found. Do not infer a deployable environment from the current virtual environment or nested reference lock."
+    },
+    "version_policy": "Existing manifest pins/ranges are copied as observed; no versions were changed or inferred."
+  },
+  "exclusions": [
+    {
+      "pattern": ".env* and credential/token files",
+      "reason": "Secrets and authentication material must not enter a release manifest or archive."
+    },
+    {
+      "pattern": "data/*.db, *.db-wal, *.db-shm, SQLite files",
+      "reason": "Live persistent data is excluded and was not accessed."
+    },
+    {
+      "pattern": ".venv, reference_staging/**/.venv, node_modules, caches, logs, backups, generated build outputs",
+      "reason": "Environment-specific, generated, sensitive, or unrelated runtime content; resolve required packaged assets separately."
+    },
+    {
+      "pattern": "ultron/voice/reference_staging/**",
+      "reason": "Reference-staging files are not included in the managed Edge runtime release; optional workflow remains separately unverified."
+    }
+  ],
+  "qualification_evidence": {
+    "manager_command": "ULTRON_EXECUTION_BACKEND=simulation .venv/bin/python -m pytest -o addopts='' -q tests/runtime/test_service_manager.py",
+    "manager_result": "33 passed, 4 subtests passed; 0 failures; 0 skipped.",
+    "recovery_release_backup_command": "ULTRON_EXECUTION_BACKEND=simulation .venv/bin/python -m pytest -o addopts='' -q tests/runtime/test_maintenance_transition.py tests/runtime/test_release_bundle.py tests/runtime/test_sqlite_backup.py",
+    "recovery_release_backup_result": "19 passed; 0 failures; 0 skipped.",
+    "auth_cre_system_intelligence_command": "ULTRON_EXECUTION_BACKEND=simulation .venv/bin/python -m pytest -o addopts='' -q tests/interface/test_interface_gateway_cre_status.py tests/interface/test_interface_gateway_system_intelligence.py tests/interface/test_local_auth_helper.py tests/interface/test_interface_authentication.py",
+    "auth_cre_system_intelligence_result": "32 passed; 0 failures; 0 skipped.",
+    "frontend_command": "npm test --prefix interface",
+    "frontend_result": "135 passed; 0 failed; 0 skipped; 0 todo.",
+    "frontend_harness_scope": "Node tests load browser scripts in a VM; WebSocket tests use fake socket classes. The logged loopback URLs are test fixture labels, not authenticated live-browser evidence.",
+    "qualification_limit": "These tests qualify isolated source/test fixtures and tools only. They do not establish complete release contents, live runtime source identity, authenticated browser behavior, or rollback readiness."
+  },
+  "blockers": [
+    "No complete runtime file closure or operator-approved allowlist.",
+    "No reproducible lock of all resolved supported-runtime dependencies.",
+    "No verified release archive or independently known-good rollback bundle.",
+    "The live manager's loaded source cannot be tied to the current source hash.",
+    "PyMuPDF license approval remains open.",
+    "Authenticated live browser data flow remains unverified."
+  ]
+}

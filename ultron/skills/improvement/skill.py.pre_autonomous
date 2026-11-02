@@ -1,0 +1,314 @@
+from ultron.skills.base import Skill
+from ultron.agents.models import AgentTask
+
+
+class ImprovementSkill(Skill):
+    """
+    Connects ULTRON capability analysis
+    with the multi-agent improvement workflow.
+
+    Flow:
+
+    Self Awareness
+        ->
+    Capability Analysis
+        ->
+    Workflow Creation
+        ->
+    Multi Agent Execution
+        ->
+    Improvement Pipeline
+    """
+
+    name = "improvement"
+
+    description = (
+        "Analyzes missing capabilities and "
+        "coordinates multi-agent improvements."
+    )
+
+    version = "5.0"
+
+    actions = [
+        "improve_self",
+    ]
+
+
+    def __init__(
+        self,
+        improvement_service,
+        self_awareness=None,
+        agent_orchestrator=None,
+        workflow_engine=None,
+        workflow_executor=None,
+    ):
+
+        self.improvement_service = (
+            improvement_service
+        )
+
+        self.self_awareness = (
+            self_awareness
+        )
+
+        self.agent_orchestrator = (
+            agent_orchestrator
+        )
+
+        self.workflow_engine = (
+            workflow_engine
+        )
+
+        self.workflow_executor = (
+            workflow_executor
+        )
+
+
+    def execute(
+        self,
+        action: str,
+        **kwargs,
+    ):
+
+        if action != "improve_self":
+
+            raise ValueError(
+                "Unsupported action"
+            )
+
+
+        if not self.self_awareness:
+
+            return {
+                "success": False,
+                "message":
+                "Self awareness unavailable.",
+            }
+
+
+        report = (
+            self.self_awareness.analyze()
+        )
+
+
+        recommendations = (
+            report.recommendations
+        )
+
+
+        if not recommendations:
+
+            return {
+
+                "success": True,
+
+                "type":
+                "improvement_complete",
+
+                "message":
+                "No capability gaps detected.",
+
+            }
+
+
+        results = []
+
+
+        for item in recommendations:
+
+            capability = item.get(
+                "capability",
+                "unknown",
+            )
+
+            reason = item.get(
+                "reason",
+                "Capability gap detected.",
+            )
+
+
+            analysis = None
+
+
+            if self.improvement_service:
+
+             analysis = {
+    "capability": capability,
+    "reason": reason,
+}   
+            
+
+
+            context = {
+
+                "capability":
+                capability,
+
+                "reason":
+                reason,
+
+                "analysis":
+                analysis,
+
+            }
+
+
+            #
+            # Multi-agent workflow
+            #
+
+            if (
+                self.workflow_engine
+                and self.workflow_executor
+            ):
+
+                workflow = (
+                    self.workflow_engine.create(
+                        goal=(
+                            f"Implement missing "
+                            f"{capability} capability."
+                        ),
+
+                        agents=[
+                            "planning",
+                            "research",
+                            "coding",
+                            "security",
+                        ],
+                    )
+                )
+
+
+                workflow_results = (
+                    self.workflow_executor.execute(
+                        workflow,
+                        context=context,
+                    )
+                )
+
+
+                results.append(
+
+                    {
+
+                        "capability":
+                        capability,
+
+                        "workflow":
+                        workflow.model_dump(),
+
+                        "results":
+                        [
+                            result.model_dump()
+                            for result in workflow_results
+                        ],
+
+                    }
+
+                )
+
+                continue
+
+
+            #
+            # Fallback to orchestrator
+            #
+
+            if self.agent_orchestrator:
+
+                task = AgentTask(
+
+                    goal=(
+                        f"Improve ULTRON by adding "
+                        f"{capability} capability."
+                    ),
+
+                    required_capabilities=[
+
+                        "web_research",
+
+                        "task_decomposition",
+
+                        "code_generation",
+
+                        "code_security_review",
+
+                    ],
+
+                    context=context,
+
+                )
+
+
+                agent_result = (
+                    self.agent_orchestrator
+                    .dispatch(task)
+                )
+
+
+                results.append(
+
+                    {
+
+                        "capability":
+                        capability,
+
+                        "agent":
+                        agent_result.agent,
+
+                        "success":
+                        agent_result.success,
+
+                        "output":
+                        agent_result.output,
+
+                        "metadata":
+                        agent_result.metadata,
+
+                    }
+
+                )
+
+
+            else:
+
+                results.append(
+
+                    {
+
+                        "capability":
+                        capability,
+
+                        "success":
+                        False,
+
+                        "message":
+                        "No improvement execution system available.",
+
+                    }
+
+                )
+
+
+        return {
+
+            "success":
+            True,
+
+            "type":
+            "multi_agent_improvement",
+
+            "results":
+            results,
+
+        }
+
+
+
+    def validate(
+        self,
+        action: str,
+        **kwargs,
+    ):
+
+        return action in self.actions

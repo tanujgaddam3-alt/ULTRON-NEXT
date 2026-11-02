@@ -1,0 +1,297 @@
+from __future__ import annotations
+
+import asyncio
+import json
+from datetime import UTC, datetime
+from typing import Any
+
+from ultron.domain.event import Event
+from ultron.application.runtime.events import RuntimeEvent
+
+
+PROVENANCE = "LIVE"
+
+
+class InterfaceGateway:
+    """
+    Production bridge between ULTRON's authoritative runtime/EventBus
+    and the interface WebSocket transport.
+
+    The gateway does not execute skills directly.
+    Commands must enter the existing cognitive/execution architecture.
+    """
+
+    def __init__(self, container):
+        self.container = container
+        self.event_bus = container.event_bus
+        self.runtime = container.runtime
+        self.executor = container.executor
+
+        self._clients: set[Any] = set()
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._subscribed = False
+
+    def start(self) -> None:
+        if self._subscribed:
+            return
+
+        self._loop = asyncio.get_running_loop()
+
+        self.event_bus.subscribe("*", self._on_event)
+        self._subscribed = True
+
+    def stop(self) -> None:
+        if not self._subscribed:
+            return
+
+        self.event_bus.unsubscribe("*", self._on_event)
+        self._subscribed = False
+        self._loop = None
+
+    def add_client(self, websocket: Any) -> None:
+        self._clients.add(websocket)
+
+    def remove_client(self, websocket: Any) -> None:
+        self._clients.discard(websocket)
+
+    def _on_event(self, event: Event) -> None:
+        payload = {
+            "channel": "runtimeEvents",
+            "type": event.type.value,
+            "source": event.source,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "provenance": PROVENANCE,
+            "payload": event.payload,
+        }
+
+        if self._loop is None:
+            return
+
+        asyncio.run_coroutine_threadsafe(
+            self._broadcast(payload),
+            self._loop,
+        )
+
+    async def _broadcast(self, payload: dict[str, Any]) -> None:
+        if not self._clients:
+            return
+
+        message = json.dumps(payload, default=str)
+
+        clients = tuple(self._clients)
+
+        results = await asyncio.gather(
+            *(client.send(message) for client in clients),
+            return_exceptions=True,
+        )
+
+        for client, result in zip(clients, results):
+            if isinstance(result, Exception):
+                self._clients.discard(client)
+
+    def snapshot(self) -> dict[str, Any]:
+        state = self.runtime.state
+
+        return {
+            "channel": "cognitiveState",
+            "provenance": PROVENANCE,
+            "state": {
+                "running": state.running,
+                "cycleCount": state.cycle_count,
+                "hasLastCycle": state.last_cycle is not None,
+            },
+        }
+
+    async def handle(self, websocket: Any, message: dict[str, Any]) -> None:
+        message_type = message.get("type")
+
+        if message_type == "subscribe":
+            await websocket.send(json.dumps(self.snapshot(), default=str))
+            return
+
+        if message_type == "ping":
+            await websocket.send(
+                json.dumps(
+                    {
+                        "type": "pong",
+                        "timestamp": datetime.now(UTC).isoformat(),
+                        "provenance": PROVENANCE,
+                    }
+                )
+            )
+            return
+
+        if message_type == "command":
+            await self._handle_command(websocket, message)
+            return
+
+        await websocket.send(
+            json.dumps(
+                {
+                    "type": "error",
+                    "error": "Unsupported message type.",
+                    "provenance": PROVENANCE,
+                }
+            )
+        )
+
+    async def _handle_command(
+        self,
+        websocket: Any,
+        message: dict[str, Any],
+    ) -> None:
+        """
+        Command transport boundary.
+
+        This intentionally does not call SkillManager directly.
+        The command must be routed through ULTRON's existing execution path.
+        """
+
+        action = message.get("action")
+        parameters = message.get("parameters", {})
+
+        if not isinstance(action, str) or not action.strip():
+            await websocket.send(
+                json.dumps(
+                    {
+                        "type": "command_result",
+                        "success": False,
+                        "error": "Action is required.",
+                        "provenance": PROVENANCE,
+                    }
+                )
+            )
+            return
+
+        if not isinstance(parameters, dict):
+            await websocket.send(
+                json.dumps(
+                    {
+                        "type": "command_result",
+                        "success": False,
+                        "error": "Parameters must be an object.",
+                        "provenance": PROVENANCE,
+                    }
+                )
+            )
+            return
+
+        try:
+            # Resolve capability through the authoritative router first.
+            self.executor.router.resolve(action)
+
+            # The current Executor accepts a Plan, so construct the same
+            # domain object used by the cognitive pipeline.
+            from ultron.domain.plan import Plan, PlanStep
+
+            plan = Plan(
+                goal=f"Interface command: {action}",
+                steps=[
+                    PlanStep(
+                        order=1,
+                        action=action,
+                        parameters=parameters,
+                    )
+                ],
+            )
+
+            result = self.executor.execute(plan)
+
+            await websocket.send(
+                json.dumps(
+                    {
+                        "type": "command_result",
+                        "action": action,
+                        "success": bool(result.get("success")),
+                        "result": result,
+                        "provenance": PROVENANCE,
+                    },
+                    default=str,
+                )
+            )
+
+        except Exception as exc:
+            await websocket.send(
+                json.dumps(
+                    {
+                        "type": "command_result",
+                        "action": action,
+                        "success": False,
+                        "error": str(exc),
+                        "provenance": PROVENANCE,
+                    }
+                )
+            )
+
+
+async def serve_interface(container, host: str = "127.0.0.1", port: int = 8080):
+    """
+    Run the production interface WebSocket endpoint.
+
+    Endpoint:
+        ws://127.0.0.1:8080/ultron/stream
+    """
+
+    import websockets
+
+    gateway = InterfaceGateway(container)
+    gateway.start()
+
+    async def handler(websocket):
+        path = websocket.request.path
+
+        if path != "/ultron/stream":
+            await websocket.close(code=1008, reason="Invalid endpoint.")
+            return
+
+        gateway.add_client(websocket)
+
+        try:
+            await websocket.send(
+                json.dumps(
+                    {
+                        "type": "connected",
+                        "channel": "runtimeEvents",
+                        "provenance": PROVENANCE,
+                    }
+                )
+            )
+
+            async for raw in websocket:
+                try:
+                    message = json.loads(raw)
+                except json.JSONDecodeError:
+                    await websocket.send(
+                        json.dumps(
+                            {
+                                "type": "error",
+                                "error": "Invalid JSON.",
+                                "provenance": PROVENANCE,
+                            }
+                        )
+                    )
+                    continue
+
+                if not isinstance(message, dict):
+                    await websocket.send(
+                        json.dumps(
+                            {
+                                "type": "error",
+                                "error": "Message must be an object.",
+                                "provenance": PROVENANCE,
+                            }
+                        )
+                    )
+                    continue
+
+                await gateway.handle(websocket, message)
+
+        finally:
+            gateway.remove_client(websocket)
+
+    async with websockets.serve(handler, host, port):
+        print(
+            f"ULTRON interface WebSocket listening on "
+            f"ws://{host}:{port}/ultron/stream"
+        )
+        await asyncio.Future()

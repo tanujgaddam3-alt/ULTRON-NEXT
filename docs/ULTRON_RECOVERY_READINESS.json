@@ -1,0 +1,178 @@
+{
+  "schema_version": 1,
+  "observed_at": "2026-10-27T17:51+05:30",
+  "mission_status": "CONDITIONAL_PASS",
+  "deployment_decision": "NO-GO",
+  "live_changes_performed": false,
+  "live_database_accessed": false,
+  "live_authentication_changed": false,
+  "source_evidence": {
+    "manager_source": "scripts/ultron_service_manager.py",
+    "manager_source_sha256": "b9a02815bf1d25679fa360fe04c0abcb8979b67dba99bab889af035878d1de97",
+    "loaded_source_association": "UNKNOWN",
+    "ownership_mechanism": [
+      "Owner-only manager.lease with non-blocking exclusive flock.",
+      "Separate manager.lock for state operations.",
+      "Owner-only services.json with process PID and start ticks.",
+      "Process checks compare executable realpath, cwd, service command identity, process start ticks, and managed process group.",
+      "Manager holds Popen handles for children started by that manager and refuses to adopt a live recorded child without validated transfer.",
+      "Control socket is created only after service startup/readiness and the manager lease is acquired before startup."
+    ]
+  },
+  "runtime_observation": {
+    "timestamp_precision": "minute",
+    "manager": {
+      "pid": 6943,
+      "parent_pid": 5868,
+      "process_group": 6943,
+      "executable": "/usr/bin/python3.14",
+      "working_directory": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL",
+      "command_matches_manager_script_and_start_action": true,
+      "lease_path_exists": false,
+      "lease_descriptor_present_including_deleted_target": false,
+      "control_socket_path_exists": false,
+      "control_socket_descriptor_path_found": false,
+      "unix_listener_path_found": false
+    },
+    "services": [
+      {
+        "name": "gateway",
+        "pid": 6970,
+        "parent_pid": 6943,
+        "start_ticks": 13117,
+        "current_identity_matches_record": true,
+        "listener": "127.0.0.1:8080"
+      },
+      {
+        "name": "frontend",
+        "pid": 7065,
+        "parent_pid": 6943,
+        "start_ticks": 13349,
+        "current_identity_matches_record": true,
+        "listener": "127.0.0.1:8000"
+      },
+      {
+        "name": "auth",
+        "pid": 7071,
+        "parent_pid": 6943,
+        "start_ticks": 13380,
+        "current_identity_matches_record": true,
+        "listener": "127.0.0.1:8081"
+      },
+      {
+        "name": "voice",
+        "pid": 7075,
+        "parent_pid": 6943,
+        "start_ticks": 13411,
+        "current_identity_matches_record": true,
+        "listener": "127.0.0.1:8765"
+      }
+    ],
+    "state_file": {
+      "path": "~/.local/state/ultron/interface-launcher/services.json",
+      "mode": "0600",
+      "owner": "ultron",
+      "modified_at": "2026-10-27T09:07:50+05:30"
+    },
+    "readiness": "Listener ownership was rechecked. Application-level readiness probes were not rerun in this snapshot; earlier readiness results are historical. Authenticated browser verification is NOT_VERIFIED."
+  },
+  "ownership_cause": {
+    "status": "UNRESOLVED",
+    "verified_fact": "Manager process remains parent of all four recorded services while expected manager lease and control socket artifacts and matching descriptors are absent.",
+    "inference": "An older in-memory manager implementation or external removal/release of ownership artifacts could explain the mismatch.",
+    "unknown": "Available read-only evidence cannot distinguish the cause or attest which manager source revision is loaded.",
+    "required_evidence": [
+      "Original manager startup terminal/session or authenticated owner audit record.",
+      "Historical manager startup/shutdown log evidence reviewed with secret-safe handling.",
+      "Operator confirmation of any state directory cleanup or manager lifecycle action."
+    ]
+  },
+  "recovery_decision": {
+    "supported_live_adoption": false,
+    "supported_manager_handoff": false,
+    "safe_current_action": "Do not start a manager, send a signal, recreate lease/socket files, or edit service records. Preserve the running stack and require operator-reviewed maintenance.",
+    "maintenance_precondition": "Explicit authorization, original manager terminal access, verified release/rollback, protected online SQLite backups, and a durable journal.",
+    "proposed_future_design": "A cooperative versioned handoff initiated and acknowledged by the current owner. Persist the transaction before quiescence, transfer the exclusive lease, verify each child identity and readiness, then commit. On ambiguity, do not adopt or signal; preserve old-owner supervision if possible and require operator intervention. Not implemented."
+  },
+  "isolated_test_coverage": [
+    {
+      "state": "Normal manager owns lease and opens control socket after service readiness.",
+      "tests": [
+        "tests/runtime/test_service_manager.py::test_control_channel_success_opens_socket_after_services_are_ready",
+        "tests/runtime/test_service_manager.py::test_manager_lease_is_exclusive_and_control_schema_is_bounded"
+      ],
+      "result": "PASS"
+    },
+    {
+      "state": "Live child record exists while the former manager has no lease or socket; a new manager cannot adopt it.",
+      "tests": [
+        "tests/runtime/test_service_manager.py::test_separate_manager_refuses_to_adopt_recorded_process_without_transfer"
+      ],
+      "result": "PASS; test asserts both artifacts are absent, starts a contender lease in temporary state, and verifies the child and state record remain unchanged."
+    },
+    {
+      "state": "Lease held before socket creation; duplicate manager is rejected.",
+      "tests": [
+        "tests/runtime/test_service_manager.py::test_manager_lease_is_exclusive_and_control_schema_is_bounded"
+      ],
+      "result": "PASS; test asserts lease path exists while socket path is absent, then creates the socket."
+    },
+    {
+      "state": "Legacy manager command with neither lease nor socket blocks new ownership.",
+      "tests": [
+        "tests/runtime/test_service_manager.py::test_legacy_manager_without_lease_or_socket_blocks_new_owner"
+      ],
+      "result": "PASS"
+    },
+    {
+      "state": "Stale PID and mismatched process-start identity are not signalled.",
+      "tests": [
+        "tests/runtime/test_service_manager.py::test_stale_pid_record_is_removed_without_signalling_pid",
+        "tests/runtime/test_service_manager.py::test_stale_helper_start_identity_is_rejected_without_signal",
+        "tests/runtime/test_service_manager.py::test_interrupted_ambiguous_candidate_is_never_signalled_or_adopted"
+      ],
+      "result": "PASS"
+    },
+    {
+      "state": "Interrupted recovery and partial-startup cleanup.",
+      "tests": [
+        "tests/runtime/test_service_manager.py",
+        "tests/runtime/test_maintenance_transition.py"
+      ],
+      "result": "PASS; see validation record below. These isolated tests do not explain the live ownership anomaly."
+    }
+  ],
+  "validation": [
+    {
+      "command": "ULTRON_EXECUTION_BACKEND=simulation .venv/bin/python -m pytest -o addopts='' -q tests/runtime/test_service_manager.py",
+      "result": "33 passed, 4 subtests passed; 0 failures; 0 skipped."
+    },
+    {
+      "command": "ULTRON_EXECUTION_BACKEND=simulation .venv/bin/python -m pytest -o addopts='' -q tests/runtime/test_maintenance_transition.py tests/runtime/test_release_bundle.py tests/runtime/test_sqlite_backup.py",
+      "result": "19 passed; 0 failures; 0 skipped."
+    },
+    {
+      "command": "ULTRON_EXECUTION_BACKEND=simulation .venv/bin/python -m pytest -o addopts='' -q tests/interface/test_interface_gateway_cre_status.py tests/interface/test_interface_gateway_system_intelligence.py tests/interface/test_local_auth_helper.py tests/interface/test_interface_authentication.py",
+      "result": "32 passed; 0 failures; 0 skipped."
+    },
+    {
+      "command": "npm test --prefix interface",
+      "result": "135 passed; 0 failed; 0 skipped; 0 todo.",
+      "scope": "Tests load the browser stack in a Node VM and use fake WebSocket classes; they do not represent live authenticated browser traffic."
+    },
+    {
+      "tool": "VS Code runTests on tests/runtime/test_service_manager.py",
+      "result": "Tool discovery reported no tests found. The direct configured pytest command above executed successfully."
+    },
+    {
+      "tool": "Pylance diagnostic on tests/runtime/test_service_manager.py",
+      "result": "Two reportMissingImports diagnostics for ultron_service_manager because the test mutates sys.path at runtime; six severity-4 unused test-parameter diagnostics. Direct pytest imports and executes successfully. No source production diagnostics were requested."
+    }
+  ],
+  "operator_actions_required": [
+    "Identify the original manager owner and terminal; do not infer ownership transfer from missing artifacts.",
+    "Authorize a separate maintenance window only after release and rollback prerequisites exist.",
+    "Privately complete normal dashboard unlock for authenticated read-only verification.",
+    "Resolve PyMuPDF licensing approval."
+  ]
+}

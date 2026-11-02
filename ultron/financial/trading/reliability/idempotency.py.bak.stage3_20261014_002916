@@ -1,0 +1,70 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+
+
+@dataclass
+class IdempotencyRecord:
+    key: str
+    order_id: str
+    created_at: datetime = field(
+        default_factory=lambda: datetime.now(UTC)
+    )
+
+
+class OrderIdempotency:
+    """
+    Prevents duplicate order submission.
+
+    A previously processed idempotency key always maps
+    to the same order ID.
+    """
+
+    def __init__(self):
+        self._records: dict[str, IdempotencyRecord] = {}
+
+    def check(self, key: str) -> IdempotencyRecord | None:
+        if not isinstance(key, str) or not key.strip():
+            raise ValueError("Idempotency key is required.")
+
+        return self._records.get(key.strip())
+
+    def record(
+        self,
+        key: str,
+        order_id: str,
+    ) -> IdempotencyRecord:
+
+        if not isinstance(key, str) or not key.strip():
+            raise ValueError("Idempotency key is required.")
+
+        if not isinstance(order_id, str) or not order_id.strip():
+            raise ValueError("Order ID is required.")
+
+        key = key.strip()
+        order_id = order_id.strip()
+
+        existing = self._records.get(key)
+
+        if existing is not None:
+            return existing
+
+        record = IdempotencyRecord(
+            key=key,
+            order_id=order_id,
+        )
+
+        self._records[key] = record
+
+        return record
+
+    def has_processed(self, key: str) -> bool:
+        return self.check(key) is not None
+
+    def clear(self) -> None:
+        self._records.clear()
+
+    @property
+    def size(self) -> int:
+        return len(self._records)

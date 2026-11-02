@@ -1,0 +1,177 @@
+from typing import Any
+
+from ultron.domain.plan import Plan
+from ultron.execution.audit import ExecutionAuditor
+from ultron.execution.dispatcher import Dispatcher
+from ultron.execution.permission import ExecutionPermission
+from ultron.execution.recovery import RecoveryManager
+from ultron.execution.router import ActionRouter
+
+
+class Executor:
+    """
+    Executes plan steps using registered skills.
+
+    Provides:
+    - permission validation
+    - capability routing
+    - execution
+    - auditing
+    - automatic retry/recovery
+    - structured execution results
+    """
+
+    def __init__(
+        self,
+        skills=None,
+        max_retries: int = 1,
+    ):
+        self.router = ActionRouter(
+            skills=skills
+        )
+
+        self.dispatcher = Dispatcher(
+            self.router.skills
+        )
+
+        self.permission = ExecutionPermission()
+
+        self.auditor = ExecutionAuditor()
+
+        self.recovery = RecoveryManager(
+            max_retries=max_retries
+        )
+
+    def execute(
+        self,
+        plan: Plan,
+    ) -> dict[str, Any]:
+        """
+        Execute every step in the plan.
+
+        A failed step is automatically retried according to
+        the configured recovery policy.
+
+        Execution stops when:
+        - a step succeeds, or
+        - its retry budget is exhausted.
+        """
+
+        completed = 0
+        results = []
+
+        for step in plan.steps:
+
+            attempts = 0
+            recovered = False
+            last_error = None
+
+            while True:
+                attempts += 1
+
+                try:
+                    # Validate permission for every actual attempt.
+                    self.permission.check(
+                        step.action,
+                        **step.parameters,
+                    )
+
+                    # Resolve the capability before dispatch.
+                    self.router.resolve(
+                        step.action
+                    )
+
+                    result = self.dispatcher.dispatch(
+                        step.action,
+                        **step.parameters,
+                    )
+
+                    recovered = attempts > 1
+
+                    self.auditor.record(
+                        action=step.action,
+                        parameters=step.parameters,
+                        success=True,
+                        message=(
+                            "Executed successfully."
+                            if not recovered
+                            else "Recovered and executed successfully."
+                        ),
+                    )
+
+                    step.completed = True
+
+                    completed += 1
+
+                    results.append(
+                        {
+                            "action": step.action,
+                            "result": result,
+                            "attempts": attempts,
+                            "recovered": recovered,
+                        }
+                    )
+
+                    if recovered:
+                        self.recovery.mark_recovered(
+                            action=step.action,
+                            attempts=attempts,
+                        )
+
+                    break
+
+                except Exception as error:
+                    last_error = error
+
+                    print(
+                        "EXECUTION ERROR:",
+                        error,
+                    )
+
+                    self.auditor.record(
+                        action=step.action,
+                        parameters=step.parameters,
+                        success=False,
+                        message=str(error),
+                    )
+
+                    recovery = self.recovery.recover(
+                        action=step.action,
+                        error=error,
+                        attempts=attempts,
+                    )
+
+                    if recovery["retry"]:
+                        print(
+                            "EXECUTION RECOVERY:",
+                            f"retrying {step.action} "
+                            f"(attempt {attempts + 1})",
+                        )
+
+                        continue
+
+                    step.completed = False
+
+                    results.append(
+                        {
+                            "action": step.action,
+                            "result": None,
+                            "attempts": attempts,
+                            "recovered": False,
+                            "error": str(last_error),
+                        }
+                    )
+
+                    break
+
+            if not step.completed:
+                break
+
+        return {
+            "completed": completed,
+            "results": results,
+            "success": (
+                completed == len(plan.steps)
+            ),
+            "recovery": self.recovery.get_history(),
+        }

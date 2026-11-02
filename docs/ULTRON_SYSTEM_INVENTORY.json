@@ -1,0 +1,349 @@
+{
+  "schema_version": 1,
+  "scope": "Source inventory plus a read-only runtime observation. Runtime observations do not establish which source revision a process loaded.",
+  "repository_root": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL",
+  "runtime_entrypoints": [
+    {
+      "name": "managed_services",
+      "launcher": "start-ultron.sh",
+      "manager": "scripts/ultron_service_manager.py",
+      "stop_launcher": "stop-ultron.sh",
+      "evidence": "docs/RUNTIME_OPERATIONS.md",
+      "live_status": "one manager and four recorded services observed; see live_runtime_observation"
+    },
+    {
+      "name": "standalone_interactive_gateway",
+      "entrypoint": "main.py",
+      "behavior": "Starts a gateway thread on 127.0.0.1:8080 and an interactive CLI.",
+      "operational_note": "This is a distinct startup path from the service manager; do not use it to start a second gateway alongside the managed stack."
+    },
+    {
+      "name": "gateway_service",
+      "entrypoint": "ultron/application/runtime/service_entrypoint.py",
+      "behavior": "Runs the interface gateway on 127.0.0.1:8080 and configures operation and CRE database defaults."
+    }
+  ],
+  "components": [
+    {
+      "name": "service_manager",
+      "source": "scripts/ultron_service_manager.py",
+      "responsibilities": ["service lifecycle", "process identity and ownership", "readiness", "supervision", "control channel"],
+      "recent_safety_change": "Startup refuses to adopt a recorded live service process that this manager instance did not start or explicitly transfer ownership of.",
+      "validation": "tests/runtime/test_service_manager.py"
+    },
+    {
+      "name": "gateway_and_authentication",
+      "source": [
+        "ultron/application/runtime/interface_gateway.py",
+        "ultron/application/runtime/local_auth_helper.py"
+      ],
+      "network_scope": "Loopback service endpoints; gateway authentication and authorization remain enforced.",
+      "direct_python_dependency": "websockets",
+      "validation": [
+        "tests/interface/test_interface_authentication.py",
+        "tests/interface/test_local_auth_helper.py",
+        "tests/interface/test_interface_gateway_authorization.py",
+        "tests/interface/test_interface_gateway_execution.py"
+      ]
+    },
+    {
+      "name": "frontend",
+      "source": "interface/",
+      "test_command": "npm test --prefix interface",
+      "live_authenticated_browser_status": "not verified; current browser shows Chat authentication unavailable and cached CRE data marked stale"
+    },
+    {
+      "name": "content_rights_engine",
+      "source": "ultron/application/content/",
+      "persistent_data": "data/ultron_cre.db",
+      "validation": [
+        "tests/interface/test_interface_gateway_cre_status.py",
+        "tests/application/"
+      ],
+      "live_database_status": "not accessed during this audit"
+    },
+    {
+      "name": "operations_and_system_intelligence",
+      "source": "ultron/application/runtime/",
+      "persistent_data": "data/ultron_operations.db",
+      "validation": [
+        "tests/interface/test_interface_gateway_system_intelligence.py",
+        "tests/runtime/test_system_intelligence.py"
+      ],
+      "live_database_status": "not accessed during this audit"
+    },
+    {
+      "name": "voice",
+      "source": "ultron/voice/",
+      "operational_boundary": "No voice functionality was modified. Reference-staging content and nested environments are excluded from core-source conclusions.",
+      "validation": "tests/voice/test_voice_server.py and tests/voice/test_xtts_engine.py passed; no voice service was started or modified."
+    },
+    {
+      "name": "financial_and_trading",
+      "source": "ultron/financial/",
+      "operational_boundary": "No trading code or safety guard was modified; validation uses the simulation-only selection.",
+      "validation": "tests/financial/"
+    },
+    {
+      "name": "standalone_financial_dashboard",
+      "entrypoint": "run_financial_dashboard.sh",
+      "implementation": "dashboard/financial_dashboard.py",
+      "framework": "Streamlit",
+      "runtime_dependency": "streamlit (requirements.txt)",
+      "backend_contract": "Uses the process-level Container singleton and adapts flat FinancialAgent analysis results; Alpaca account snapshots use TradingClient(paper=True).",
+      "data_flow": "Dashboard -> FinancialAgent analysis / paper-trade controller; Alpaca paper account, positions, and orders are read separately.",
+      "persistence": "Financial experience store initialized by the application container; no dashboard-owned database migration.",
+      "health_and_freshness": "Account availability/error is shown; the successful account snapshot timestamp is captured locally after account, positions, and orders all succeed. Analysis receipt time is distinguished from provider freshness.",
+      "security_boundary": "Separate local Streamlit surface; not protected by the operator console local-unlock gateway. Existing financial paper-trade authorization guard is preserved.",
+      "validation": "tests/dashboard/test_financial_dashboard_contract.py"
+    }
+  ],
+  "subsystem_contracts": [
+    {
+      "name": "main_application",
+      "entrypoints": [
+        "main.py",
+        "ultron/application/runtime/service_entrypoint.py"
+      ],
+      "execution_paths": "main.py starts an interactive CLI with its own gateway thread; the launcher-managed gateway uses service_entrypoint.py. These are separate paths and must not be started concurrently against the same ports.",
+      "application_wiring": "ultron/infrastructure/container.py provides the application Container singleton used by the financial dashboard and gateway wiring.",
+      "persistence": [
+        "SQLite-backed conversation history",
+        "SQLite-backed task and operation lifecycle records",
+        "separate memory, knowledge, and experience stores"
+      ],
+      "validation": [
+        "tests/runtime/",
+        "tests/interface/",
+        "tests/"
+      ]
+    },
+    {
+      "name": "launcher_and_supervision",
+      "entrypoints": [
+        "start-ultron.sh",
+        "stop-ultron.sh",
+        "scripts/ultron_service_manager.py"
+      ],
+      "managed_services": [
+        "gateway: ultron.application.runtime.service_entrypoint on 127.0.0.1:8080",
+        "frontend: Python static server on 127.0.0.1:8000",
+        "auth: ultron.application.runtime.local_auth_helper serve on 127.0.0.1:8081",
+        "voice: ultron.voice.server --engine edge on 127.0.0.1:8765"
+      ],
+      "identity_and_readiness": "The manager validates executable realpath, working directory, command identity, recorded process start ticks, and managed process group before treating a record as owned. Per-service readiness probes are required; an open listener alone is insufficient.",
+      "state": "Owner-only services.json under $XDG_STATE_HOME/ultron/interface-launcher or ~/.local/state/ultron/interface-launcher; manager lease and control socket are separate runtime artifacts.",
+      "validation": [
+        "tests/runtime/test_service_manager.py",
+        "tests/runtime/test_maintenance_transition.py"
+      ]
+    },
+    {
+      "name": "authentication_and_frontend_state",
+      "entrypoints": [
+        "ultron/application/runtime/local_auth_helper.py",
+        "interface/index.html",
+        "interface/operator-console.js",
+        "interface/services/providers/websocketProvider.js"
+      ],
+      "contract": "The browser contacts the loopback helper; after private local unlock the helper opens the authenticated gateway WebSocket. The backend derives principal identity from the authenticated connection. The frontend keeps cached results visibly stale while disconnected.",
+      "security": "The helper preserves exact origin allowlists and local credential handling; gateway authorization remains server-side.",
+      "validation": [
+        "tests/interface/test_interface_authentication.py",
+        "tests/interface/test_local_auth_helper.py",
+        "interface/tests/websocketProvider.test.mjs",
+        "interface/tests/creStatus.test.mjs"
+      ]
+    },
+    {
+      "name": "system_intelligence",
+      "entrypoint": "ultron/application/runtime/system_intelligence.py",
+      "data_flow": "Authenticated gateway request to a read-only host/process/listener snapshot, then a frontend System Intelligence view.",
+      "persistence": "Owner-only diagnostic observations in system-intelligence.db below launcher state; live operations database was not read.",
+      "freshness": "Each observation carries source, observation time, and status; missing tools/probes stay UNKNOWN or UNAVAILABLE.",
+      "validation": [
+        "tests/runtime/test_system_intelligence.py",
+        "tests/interface/test_interface_gateway_system_intelligence.py",
+        "interface/tests/runtimeEvents.test.mjs"
+      ]
+    },
+    {
+      "name": "cre_and_persisted_evidence",
+      "entrypoint": "ultron/application/content/service.py",
+      "gateway_contract": "Authenticated CRE_STATUS_REQUEST maps the gateway principal to the owner-filtered ContentRightsService projection. Scene-gallery delivery uses authenticated CRE status and persisted scene evidence.",
+      "persistence": "data/ultron_cre.db; not opened during this audit. ContentStore schema is 7, publishing-attempt schema is 9, and scene contract schema is 2 in current source.",
+      "restrictions": "Publishing is reported as mock-only; unconfigured rendering/processing is not represented as available.",
+      "validation": [
+        "tests/application/",
+        "tests/interface/test_interface_gateway_cre_status.py",
+        "interface/tests/creStatus.test.mjs",
+        "interface/tests/renderCreAudioEvidence.test.mjs"
+      ]
+    },
+    {
+      "name": "financial_trading_and_voice",
+      "entrypoints": [
+        "financial_main.py",
+        "run_financial_dashboard.sh",
+        "ultron/voice/server.py"
+      ],
+      "financial_controls": "Financial construction requires simulation mode; paper-trade authorization remains fail-closed. The standalone dashboard's Alpaca account reads use paper mode and its Streamlit surface is separate from local-unlock authentication.",
+      "voice_controls": "The managed service explicitly selects Edge. XTTS and DSP codec dependencies are lazy/optional; reference_staging is not part of the production runtime path.",
+      "validation": [
+        "tests/financial/",
+        "tests/voice/",
+        "interface/tests/voice_client.test.mjs",
+        "interface/tests/voice_playback.test.mjs"
+      ]
+    },
+    {
+      "name": "release_backup_and_recovery",
+      "entrypoints": [
+        "scripts/ultron_release_bundle.py",
+        "scripts/ultron_sqlite_backup.py"
+      ],
+      "release_contract": "Explicit file list; deterministic archive timestamps; per-file SHA-256 manifest; archive verification; restore to a separate destination.",
+      "database_contract": "SQLite online backup API; integrity, schema/user_version, size and digest checks; live CRE and operations databases were not accessed.",
+      "validation": [
+        "tests/runtime/test_release_bundle.py",
+        "tests/runtime/test_sqlite_backup.py"
+      ]
+    }
+  ],
+  "integration_findings": {
+    "confirmed_repairs": [
+      {
+        "issue": "Standalone financial dashboard constructed another application Container despite an existing module-level singleton.",
+        "repair": "Dashboard reuses the process-level singleton to avoid duplicate repositories and runtime stores.",
+        "test": "tests/dashboard/test_financial_dashboard_contract.py"
+      },
+      {
+        "issue": "Dashboard adapter expected a legacy nested FinancialAgent result and omitted the current flat result fields.",
+        "repair": "Adapter accepts the current flat response as well as the legacy nested shape and exercises the actual rendering path.",
+        "test": "tests/dashboard/test_financial_dashboard_contract.py"
+      },
+      {
+        "issue": "Dashboard status conflated local analysis receipt with provider freshness and did not show a successful account-snapshot time.",
+        "repair": "Displays local receipt time separately and records account refresh time only after account, positions, and orders all succeed.",
+        "test": "tests/dashboard/test_financial_dashboard_contract.py"
+      },
+      {
+        "issue": "Streamlit was directly used but missing from the root Python dependency manifest; dashboard startup did not establish simulation mode by default.",
+        "repair": "Declared Streamlit, defaulted the dashboard launcher to simulation without overriding explicit values, and retained the application's fail-closed mode validation.",
+        "test": "tests/dashboard/test_financial_dashboard_contract.py"
+      }
+    ],
+    "confirmed_disconnected_components": [],
+    "intentional_separation": [
+      "main.py interactive gateway path is separate from the launcher-managed gateway and must not run concurrently on the same ports.",
+      "The Streamlit financial dashboard is a separate local operator surface, not authenticated through the operator-console helper."
+    ],
+    "unverified_usage": "Backup-named and legacy source copies were retained because dynamic loading, external scripts, and operator recovery use were not ruled out."
+  },
+  "static_review": {
+    "project_health": "C (66/100) across 1707 analyzed files; analyzer reports 3.8% duplicate code, 2 circular import groups, and 14 unused-function candidates.",
+    "pylance_configuration": "typeCheckingMode=off and diagnosticMode=openFilesOnly; these results are not a full-project strict type check.",
+    "architecture_rules": "No architecture rules are configured, so absence of reported violations is not evidence that layer boundaries were checked.",
+    "unused_or_duplicate_cleanup": "No candidate function or file was removed. Highest duplicate blocks were in voice/reference_staging and backup directories; no redundant active implementation was confirmed.",
+    "workspace_problem": "Problems tool reported one existing import-order issue in ultron/application/runtime/system_intelligence.py; direct Pylance diagnostic for that file returned no items. No issues were reported in the changed dashboard files.",
+    "security_and_license_gate": "Static quality gate remains failed: PyMuPDF is directly used and reported AGPL-3.0; a masked token-like value was found in .env.financial; optional reference-staging dependency findings require separate review."
+  },
+  "persistent_data_policy": {
+    "live_sqlite_databases": "Not opened, checkpointed, backed up, migrated, or modified during this audit.",
+    "cre_database": "Preserve data/ultron_cre.db and any WAL/SHM sidecars during separately authorized maintenance.",
+    "operations_database": "Preserve data/ultron_operations.db and any WAL/SHM sidecars during separately authorized maintenance.",
+    "backup_tool": "scripts/ultron_sqlite_backup.py; rehearsal is limited to temporary WAL-mode databases."
+  },
+  "live_runtime_observation": {
+    "observed_at": "2026-10-27T14:27:19+05:30",
+    "mode": "read-only; process metadata, manager state identity checks, loopback listener inspection, and service readiness probes only",
+    "manager": {
+      "pid": 6943,
+      "parent_pid": 5868,
+      "executable": "/usr/bin/python3.14",
+      "working_directory": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL",
+      "process_count_observed": 1,
+      "manager_lease_present": false,
+      "control_socket_present": false,
+      "loaded_source_revision": "unknown",
+      "release_association": "not established; do not infer from timestamps",
+      "observation": "The manager process remains the parent of the four recorded services, but the current manager lease and control socket are absent. This is inconsistent with the current source's supervised control-channel path; do not start a competing manager or infer which source the process loaded."
+    },
+    "services": [
+      {"name": "gateway", "pid": 6970, "parent_pid": 6943, "recorded_start_identity_matches": true, "executable": "/usr/bin/python3.14", "listener": "127.0.0.1:8080", "readiness": "gateway ready (authentication required)"},
+      {"name": "frontend", "pid": 7065, "parent_pid": 6943, "recorded_start_identity_matches": true, "executable": "/usr/bin/python3.14", "listener": "127.0.0.1:8000", "readiness": "reachable"},
+      {"name": "auth", "pid": 7071, "parent_pid": 6943, "recorded_start_identity_matches": true, "executable": "/usr/bin/python3.14", "listener": "127.0.0.1:8081", "readiness": "local-unlock helper ready"},
+      {"name": "voice", "pid": 7075, "parent_pid": 6943, "recorded_start_identity_matches": true, "executable": "/usr/bin/python3.14", "listener": "127.0.0.1:8765", "readiness": "engine=edge is_clone=false"}
+    ],
+    "services_json_permissions": "0600, owner ultron",
+    "authenticated_dashboard": "not verified; browser displays Chat authentication unavailable and cached CRE response marked stale",
+    "database_access": "none"
+  },
+  "release_bundle": {
+    "builder": "scripts/ultron_release_bundle.py",
+    "production_bundle_created": false,
+    "reason": "No Git metadata exists to establish the complete intended source revision. A hand-invented whole-workspace allowlist would include unverified artifacts or omit dependencies. The root dependency manifest is not a fully pinned environment lock. A deployable release and known-good rollback identity remain unestablished.",
+    "prechange_baseline": {
+      "location": "/home/ultron/.copilot/session-state/6c0d4392-c1c2-4bdb-a136-99a535f24fd4/files/mission2-prechange-baseline.zip",
+      "sha256": "695677704f8236ac7c4f7ec208493606d0969aa0552552ee4dd6920f452726ba",
+      "file_count": 14,
+      "scope": "scoped financial-dashboard/release baseline; not a full release or rollback artifact"
+    }
+  },
+  "dependency_findings": {
+    "corrected": [
+      "Added the directly imported websockets runtime dependency to requirements.txt.",
+      "Removed the duplicate pypdf declaration.",
+      "Added the directly required Streamlit dependency for the standalone dashboard.",
+      "Added certifi>=2026.10.18 after the selected environment's 2025.11.12 package was reported vulnerable; the isolated project environment now has certifi 2026.10.23."
+    ],
+    "optional_or_non_core_imports_not_available_in_selected_environment": [
+      {"module": "imageio_ffmpeg", "source": "ultron/voice/dsp.py", "classification": "lazy optional voice/DSP dependency; not required by the observed edge voice engine"},
+      {"module": "TTS", "source": "ultron/voice/tts/xtts_engine.py", "classification": "optional XTTS engine dependency; not required by the observed edge voice engine"},
+      {"module": "hydra, omegaconf, f5_tts, librosa", "source": "primarily voice/reference_staging", "classification": "reference or experimental tooling; excluded from core runtime dependency conclusions"}
+    ],
+    "pylance_unresolved_module": {
+      "module": "ultron_service_manager",
+      "classification": "tests add scripts/ to sys.path to load the script module; this is an analysis-path diagnostic, not a missing runtime file"
+    },
+    "release_review_blockers": [
+      "Static license analysis reports direct PyMuPDF use under AGPL-3.0; license approval is unresolved.",
+      "Static security analysis currently reports a critical Transformers advisory for version 4.57.6 declared only in an excluded voice reference-staging lockfile. The advisory summary references version 5.2.0, so applicability needs independent review.",
+      "A secret scanner flagged a token-like value in .env.financial; the value was masked and the file is excluded from release bundles."
+    ],
+    "not_fixed": "Optional voice/reference tooling dependencies were not installed; their reference workflow is not part of the selected Edge voice runtime path."
+  },
+  "test_baseline": {
+    "execution_backend": "simulation",
+    "focused_command": "ULTRON_EXECUTION_BACKEND=simulation .venv/bin/python -m pytest -o addopts='' -q tests/dashboard/test_financial_dashboard_contract.py tests/runtime/test_service_manager.py tests/runtime/test_maintenance_transition.py tests/runtime/test_system_intelligence.py tests/runtime/test_release_bundle.py tests/runtime/test_sqlite_backup.py tests/interface/test_interface_gateway_authorization.py tests/interface/test_interface_gateway_execution.py tests/interface/test_interface_gateway_operations.py tests/interface/test_interface_gateway_financial.py tests/interface/test_interface_gateway_chat.py tests/interface/test_interface_authentication.py tests/interface/test_local_auth_helper.py tests/interface/test_interface_gateway_cre_status.py tests/interface/test_interface_gateway_system_intelligence.py tests/application tests/financial/test_skill_architecture.py tests/financial/trading/test_provider_execution_fail_closed.py tests/voice",
+    "latest_focused_result": "570 passed, 0 failed, 0 skipped, 0 deselected; 1 websockets legacy deprecation warning; 4 subtests passed",
+    "broad_simulation_command": "ULTRON_EXECUTION_BACKEND=simulation .venv/bin/python -m pytest ultron/skills/terminal/tests/test_terminal_skill.py tests/test_file_skill_authorization.py tests/test_project_storage_authorization.py tests/test_execution.py tests/test_tasks.py tests/test_skills.py tests/test_project_skill.py tests/test_permission_rules.py tests/coding/test_project_builder.py tests/financial/test_skill_architecture.py tests/financial/trading/test_provider_execution_fail_closed.py tests/interface/test_interface_gateway_authorization.py tests/interface/test_interface_gateway_execution.py tests/interface/test_interface_gateway_operations.py tests/interface/test_interface_gateway_financial.py tests/interface/test_interface_gateway_chat.py tests/interface/test_interface_authentication.py tests/interface/test_local_auth_helper.py tests/agents/test_agent_routing.py tests/agents/test_workflow_executor.py tests/runtime/test_service_manager.py tests/improvement/test_improvement_pipeline.py -q --deselect=tests/improvement/test_improvement_pipeline.py::test_improvement_pipeline",
+    "latest_broad_simulation_result": "415 passed, 0 failed, 1 deselected, 1 websockets legacy deprecation warning, 4 subtests passed",
+    "latest_frontend_result": "135 passed, 0 failed, 0 skipped, 0 todo",
+    "static_checks": "Changed dashboard Python source has no Pylance diagnostics. The new dashboard test has only severity-4 unused-parameter warnings in its fake Streamlit methods. Workspace Problems reported one existing import-order issue in ultron/application/runtime/system_intelligence.py, while direct Pylance diagnostics for that file returned no items. Bash syntax and JSON parsing passed.",
+    "not_run": "The entire repository test tree was not run; the documented broad simulation-only suite and the targeted application/gateway/runtime/voice selectors above were run."
+  },
+  "deployment_status": {
+    "decision": "NO-GO",
+    "reasons": [
+      "No complete source revision, exact intended release allowlist, or independently verified known-good rollback bundle.",
+      "The root dependency manifest does not lock the complete resolved runtime environment.",
+      "Live manager has recorded child services but no current lease or control socket; source loaded by the process is unknown. Do not start a competing manager.",
+      "Authenticated browser data flow remains blocked; cached CRE status is displayed stale.",
+      "AGPL PyMuPDF license approval remains unresolved."
+    ]
+  },
+  "mission_2_change_record": {
+    "known_files_changed_this_mission": [
+      "run_financial_dashboard.sh",
+      "requirements.txt",
+      "dashboard/financial_dashboard.py",
+      "tests/dashboard/test_financial_dashboard_contract.py",
+      "docs/ULTRON_ARCHITECTURE.md",
+      "docs/RUNTIME_OPERATIONS.md",
+      "docs/ULTRON_SYSTEM_INVENTORY.json",
+      "docs/ULTRON_CLEANUP_RECORD.json"
+    ],
+    "git_status": "unavailable; workspace has no .git metadata, so this is not a complete historical change list"
+  }
+}

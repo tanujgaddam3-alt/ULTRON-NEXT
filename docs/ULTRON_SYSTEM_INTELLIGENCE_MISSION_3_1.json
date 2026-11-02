@@ -1,0 +1,196 @@
+{
+  "mission": "ULTRON_SYSTEM_INTELLIGENCE_MISSION_3_1",
+  "observation_timestamp": "2026-10-27T22:53:41+05:30",
+  "final_listener_confirmation_timestamp": "2026-10-27T22:54:25+05:30",
+  "environment": {
+    "os": "Linux",
+    "workspace": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL",
+    "project_root_exists": true,
+    "xdg_state_home_is_set": false,
+    "effective_state_directory": "/home/ultron/.local/state/ultron/interface-launcher",
+    "launcher_interpreter_executable": true,
+    "launcher_interpreter_realpath": "/usr/bin/python3.14"
+  },
+  "conclusion": "RUNTIME_ABSENT",
+  "live_integration": "UNVERIFIED",
+  "deployment_decision": "NO-GO",
+  "safety": {
+    "processes_started_stopped_killed_signalled_adopted_or_handed_off": false,
+    "manager_actions_invoked": false,
+    "secrets_read_or_reported": false,
+    "live_databases_accessed_or_modified": false,
+    "persistent_runtime_state_modified": false
+  },
+  "canonical_launch": {
+    "command": "./start-ultron.sh",
+    "working_directory": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL",
+    "manager_command_shape": "<project>/.venv/bin/python <project>/scripts/ultron_service_manager.py start --root <project>",
+    "source": {
+      "file": "start-ultron.sh",
+      "lines": [4, 5, 12]
+    },
+    "alternate_full_stack_launcher_documented": false,
+    "component_commands_documented": [
+      "local_auth_helper serve",
+      "ultron.voice.server"
+    ],
+    "separate_application": {
+      "name": "financial dashboard",
+      "is_part_of_managed_stack": false
+    },
+    "manager_cli_actions": ["start", "stop"],
+    "manager_adoption_or_handoff_supported": false
+  },
+  "intended_manager_identity": {
+    "working_directory": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL",
+    "executable_realpath_in_environment": "/usr/bin/python3.14",
+    "command_identity": "scripts/ultron_service_manager.py start --root <project>",
+    "manager_pid_start_tick_recorded_in_services_json": false,
+    "supported_ownership_mechanisms": [
+      "exclusive lifetime flock on manager.lease",
+      "owner-only manager.sock created after all service readiness checks",
+      "child PID and process-start ticks in services.json",
+      "child process verification by executable, cwd, command identity, start ticks, and managed process group"
+    ],
+    "source_references": [
+      {
+        "file": "scripts/ultron_service_manager.py",
+        "lines": [278, 285, 286, 302, 532, 677, 1856, 1858]
+      }
+    ]
+  },
+  "expected_services": [
+    {
+      "name": "gateway",
+      "identity": "ultron.application.runtime.service_entrypoint",
+      "loopback": "127.0.0.1",
+      "port": 8080,
+      "readiness": "WebSocket greeting with expected runtime channel and authentication-required state"
+    },
+    {
+      "name": "frontend",
+      "identity": "http.server serving interface",
+      "loopback": "127.0.0.1",
+      "port": 8000,
+      "readiness": "HTTP 200 with expected operator-console title"
+    },
+    {
+      "name": "auth",
+      "identity": "ultron.application.runtime.local_auth_helper serve",
+      "loopback": "127.0.0.1",
+      "port": 8081,
+      "readiness": "WebSocket local-unlock greeting with exact dashboard origin"
+    },
+    {
+      "name": "voice",
+      "identity": "ultron.voice.server --port 8765 --engine edge",
+      "loopback": "127.0.0.1",
+      "port": 8765,
+      "readiness": "HTTP health ready=true and an engine name"
+    }
+  ],
+  "current_observations": {
+    "process_scan": {
+      "exit_code": 0,
+      "matching_manager_processes": 0,
+      "matching_service_processes": 0,
+      "match_scope": "Exact canonical manager/service identities, project working directory and configured project interpreter",
+      "raw_process_arguments_reported": false,
+      "environment_values_reported": false,
+      "process_start_ticks_available": false
+    },
+    "state_directory": {
+      "path": "/home/ultron/.local/state/ultron/interface-launcher",
+      "services_json": {
+        "exists": true,
+        "owner_uid": 1000,
+        "mode": "0600",
+        "valid_version": 1,
+        "service_record_count": 0,
+        "startup_recovery_status": null
+      },
+      "manager_lease": {
+        "exists": false,
+        "lock_state_from_absent_path": "UNVERIFIED"
+      },
+      "manager_socket": {
+        "exists": false,
+        "connection_attempted": false
+      },
+      "manager_lock": {
+        "exists": true,
+        "kind": "regular file",
+        "mode": "0600",
+        "used_as_lifetime_ownership_evidence": false
+      }
+    },
+    "listeners": {
+      "command": "ss -ltnp '( sport = :8000 or sport = :8080 or sport = :8081 or sport = :8765 )'",
+      "exit_code": 0,
+      "matching_listener_count": 0
+    }
+  },
+  "historical_comparison": [
+    {
+      "timestamp": "2026-10-27T19:42:27+05:30",
+      "source": "docs/ULTRON_RUNTIME_OWNERSHIP_MISSION_00.md",
+      "observation": "Manager PID 6943 and four child processes were observed; expected manager lease and control socket were absent.",
+      "current_identity_claim": false
+    },
+    {
+      "timestamp": "2026-10-27T22:44:55+05:30",
+      "source": "docs/ULTRON_SYSTEM_INTELLIGENCE_MISSION_3.md",
+      "observation": "Expected listeners and matching project service processes were not observed.",
+      "current_identity_claim": false
+    },
+    {
+      "timestamp": "2026-10-27T22:53:41+05:30",
+      "source": "Mission 3.1 current snapshot",
+      "observation": "No matching manager/service processes; empty service state; no lease, socket, or expected listeners.",
+      "current_identity_claim": true
+    }
+  ],
+  "cause_of_disappearance": {
+    "status": "UNRESOLVED",
+    "possible_causes_established": [],
+    "logs_or_operator_history_inspected": false,
+    "cause_inferred_from_empty_state": false
+  },
+  "commands": [
+    {
+      "command": "date --iso-8601=seconds",
+      "exit_code": 0,
+      "result": "2026-10-27T22:54:25+05:30"
+    },
+    {
+      "command": "Bounded /proc scan for exact canonical manager and service identities",
+      "exit_code": 0,
+      "result": "No matching processes"
+    },
+    {
+      "command": "Read-only metadata check and selective identity-field read of launcher state files",
+      "exit_code": 0,
+      "result": "services.json valid v1 with zero services; manager.lease and manager.sock absent; manager.lock regular file"
+    },
+    {
+      "command": "ss -ltnp '( sport = :8000 or sport = :8080 or sport = :8081 or sport = :8765 )'",
+      "exit_code": 0,
+      "result": "No matching listeners"
+    },
+    {
+      "command": "Read-only check of XDG_STATE_HOME, project root, and project interpreter",
+      "exit_code": 0,
+      "result": "XDG_STATE_HOME unset; documented default state path; project interpreter executable and resolves to /usr/bin/python3.14"
+    }
+  ],
+  "unresolved_questions": [
+    "What caused the previously observed manager and service processes to disappear between 19:42 and 22:44 local time?",
+    "Was the shutdown operator initiated, a process failure, or another termination event?",
+    "Was any service launched from another root or undocumented mechanism?",
+    "What source revision would a future manager load? Git metadata is unavailable and no backend is running."
+  ],
+  "reports": [
+    "docs/ULTRON_SYSTEM_INTELLIGENCE_MISSION_3_1.md",
+    "docs/ULTRON_SYSTEM_INTELLIGENCE_MISSION_3_1.json"
+  ]
+}

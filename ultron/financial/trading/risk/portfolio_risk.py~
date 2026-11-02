@@ -1,0 +1,113 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+
+@dataclass
+class PortfolioRiskEngine:
+    max_total_exposure_percent: float = 75.0
+    max_position_percent: float = 25.0
+
+    def validate(
+        self,
+        equity: float,
+        positions: dict,
+        proposed_symbol: str,
+        proposed_value: float,
+    ) -> dict:
+
+        if equity <= 0:
+            return {
+                "approved": False,
+                "risk_level": "critical",
+                "reason": "Portfolio equity must be positive.",
+            }
+
+        if proposed_value < 0:
+            return {
+                "approved": False,
+                "risk_level": "high",
+                "reason": "Proposed exposure cannot be negative.",
+            }
+
+        current_exposure = 0.0
+
+        for position in positions.values():
+            quantity = float(
+                position.get("quantity", 0.0)
+            )
+            average_price = float(
+                position.get("average_price", 0.0)
+            )
+
+            current_exposure += (
+                quantity * average_price
+            )
+
+        existing_position = positions.get(
+            proposed_symbol,
+            {},
+        )
+
+        existing_value = (
+            float(existing_position.get("quantity", 0.0))
+            * float(existing_position.get("average_price", 0.0))
+        )
+
+        proposed_position_value = (
+            existing_value + proposed_value
+        )
+
+        proposed_position_percent = (
+            proposed_position_value / equity
+        ) * 100.0
+
+        if (
+            proposed_position_percent
+            > self.max_position_percent
+        ):
+            return {
+                "approved": False,
+                "risk_level": "high",
+                "reason": (
+                    "Maximum position exposure exceeded."
+                ),
+                "position_exposure_percent":
+                    proposed_position_percent,
+            }
+
+        total_exposure = (
+            current_exposure
+            - existing_value
+            + proposed_position_value
+        )
+
+        total_exposure_percent = (
+            total_exposure / equity
+        ) * 100.0
+
+        if (
+            total_exposure_percent
+            > self.max_total_exposure_percent
+        ):
+            return {
+                "approved": False,
+                "risk_level": "high",
+                "reason": (
+                    "Maximum portfolio exposure exceeded."
+                ),
+                "total_exposure_percent":
+                    total_exposure_percent,
+            }
+
+        return {
+            "approved": True,
+            "risk_level": "medium",
+            "reason": (
+                "Trade satisfies portfolio risk constraints."
+            ),
+            "position_exposure_percent":
+                proposed_position_percent,
+            "total_exposure_percent":
+                total_exposure_percent,
+        }

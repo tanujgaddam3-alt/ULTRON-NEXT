@@ -1,0 +1,127 @@
+from __future__ import annotations
+
+from typing import Any
+
+from ultron.skills.base import Skill
+
+
+class FinancialSkill(Skill):
+    """
+    Production bridge between ULTRON's generic execution system
+    and the FinancialAgent.
+
+    The execution layer speaks in Skill actions.
+    FinancialAgent remains responsible for financial intelligence.
+    """
+
+    name = "financial"
+
+    description = (
+        "Performs financial market analysis and coordinates "
+        "ULTRON's financial intelligence subsystem."
+    )
+
+    version = "1.1"
+
+    actions = [
+        "analyze",
+        "paper_trade",
+    ]
+
+    def __init__(self, financial_agent):
+        if financial_agent is None:
+            raise ValueError("FinancialAgent is required.")
+
+        self.financial_agent = financial_agent
+
+    def validate(
+        self,
+        action: str,
+        **kwargs: Any,
+    ) -> bool:
+
+        if not self.supports(action):
+            return False
+
+        symbol = kwargs.get("symbol")
+
+        if not isinstance(symbol, str) or not symbol.strip():
+            return False
+
+        # Paper-trade price comes from the controller's validated market-data
+        # path; caller-provided prices are not trusted for execution.
+        return True
+
+    def execute(
+        self,
+        action: str,
+        **kwargs: Any,
+    ):
+        if action == "analyze":
+            return self._analyze(**kwargs)
+
+        if action == "paper_trade":
+            return self._paper_trade(**kwargs)
+
+        raise ValueError(
+            f"Unsupported financial action: {action}"
+        )
+
+    def _analyze(
+        self,
+        **kwargs: Any,
+    ):
+        symbol = kwargs.get("symbol")
+
+        if not isinstance(symbol, str) or not symbol.strip():
+            raise ValueError(
+                "Financial analysis requires a market symbol."
+            )
+
+        run_backtest = kwargs.get(
+            "run_backtest",
+            False,
+        )
+
+        result = self.financial_agent.analyze(
+            symbol=symbol.strip().upper(),
+            run_backtest=bool(run_backtest),
+        )
+
+        if not isinstance(result, dict):
+            raise TypeError(
+                "FinancialAgent returned an invalid result."
+            )
+
+        return result
+
+    def _paper_trade(
+        self,
+        **kwargs: Any,
+    ):
+        symbol = kwargs.get("symbol")
+
+        if not isinstance(symbol, str) or not symbol.strip():
+            raise ValueError(
+                "Paper trading requires a market symbol."
+            )
+
+        analysis = kwargs.get("analysis")
+
+        if analysis is None:
+            analysis = self.financial_agent.analyze(
+                symbol=symbol.strip().upper(),
+                run_backtest=bool(
+                    kwargs.get("run_backtest", False)
+                ),
+            )
+
+        if not isinstance(analysis, dict):
+            raise TypeError(
+                "FinancialAgent returned an invalid analysis."
+            )
+
+        return self.financial_agent.paper_trade(
+            analysis=analysis,
+            price=float(price),
+        )

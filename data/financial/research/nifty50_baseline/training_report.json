@@ -1,0 +1,108 @@
+{
+  "success": true,
+  "model_type": "HistGradientBoostingClassifier",
+  "data_path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/data/financial/nifty50/dataset/NIFTY50_all.csv",
+  "rows": {
+    "raw": 235192,
+    "usable": 231847,
+    "train": 154575,
+    "validation": 38513,
+    "test": 38661
+  },
+  "date_ranges": {
+    "train": [
+      "2000-03-13",
+      "2014-12-11"
+    ],
+    "validation": [
+      "2014-12-15",
+      "2018-02-15"
+    ],
+    "test": [
+      "2018-02-19",
+      "2021-04-29"
+    ]
+  },
+  "features": [
+    "return_1",
+    "return_2",
+    "return_5",
+    "return_10",
+    "return_20",
+    "sma_ratio_5",
+    "sma_ratio_10",
+    "sma_ratio_20",
+    "sma_ratio_50",
+    "volatility_5",
+    "volatility_10",
+    "volatility_20",
+    "range_pct",
+    "gap_pct",
+    "volume_ratio_5",
+    "volume_ratio_20",
+    "rsi_14",
+    "close_location"
+  ],
+  "validation_classification": {
+    "accuracy": 0.534,
+    "balanced_accuracy": 0.50221,
+    "observations": 38513,
+    "positive_rate": 0.45637,
+    "roc_auc": 0.50452,
+    "log_loss": 0.6906
+  },
+  "test_classification": {
+    "accuracy": 0.53501,
+    "balanced_accuracy": 0.50032,
+    "observations": 38661,
+    "positive_rate": 0.45638,
+    "roc_auc": 0.50425,
+    "log_loss": 0.69041
+  },
+  "validation_backtest": {
+    "threshold": 0.55,
+    "cost_bps_per_side": 10.0,
+    "trade_observations": 1,
+    "trade_rate_pct": 0.003,
+    "strategy": {
+      "total_return_pct": -0.0431,
+      "annualized_sharpe": -0.5659,
+      "max_drawdown_pct": -0.0431,
+      "daily_observations": 787
+    },
+    "always_long_benchmark": {
+      "total_return_pct": -47.9862,
+      "annualized_sharpe": -1.6661,
+      "max_drawdown_pct": -49.6646,
+      "daily_observations": 787
+    },
+    "warning": "Research backtest only; excludes slippage, spread, taxes, liquidity limits, and operational failures beyond the configured cost assumption."
+  },
+  "test_backtest": {
+    "threshold": 0.55,
+    "cost_bps_per_side": 10.0,
+    "trade_observations": 6,
+    "trade_rate_pct": 0.016,
+    "strategy": {
+      "total_return_pct": 0.2653,
+      "annualized_sharpe": 0.6433,
+      "max_drawdown_pct": -0.0948,
+      "daily_observations": 789
+    },
+    "always_long_benchmark": {
+      "total_return_pct": -57.9259,
+      "annualized_sharpe": -1.4632,
+      "max_drawdown_pct": -59.6262,
+      "daily_observations": 789
+    },
+    "warning": "Research backtest only; excludes slippage, spread, taxes, liquidity limits, and operational failures beyond the configured cost assumption."
+  },
+  "model_path": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/data/financial/research/nifty50_baseline/market_signal_model.joblib",
+  "threshold": 0.55,
+  "limitations": [
+    "Daily OHLCV only; no fundamentals, news, order book, or intraday microstructure.",
+    "Threshold is supplied by the user and is not optimized on the final test set.",
+    "The final test set must be treated as untouched after this report is generated.",
+    "This model emits research signals only and cannot place orders."
+  ]
+}

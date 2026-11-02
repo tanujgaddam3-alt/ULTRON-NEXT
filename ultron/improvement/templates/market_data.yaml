@@ -1,0 +1,29 @@
+name: market_data
+
+purpose:
+  Collect financial market information
+
+components:
+
+  - name: provider
+    file: provider.py
+
+  - name: storage
+    file: storage.py
+
+  - name: models
+    file: models.py
+
+  - name: skill
+    file: skill.py
+
+
+dependencies:
+
+  - requests
+  - pandas
+
+
+tests:
+
+  - test_market_data.py

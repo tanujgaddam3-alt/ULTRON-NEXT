@@ -1,0 +1,587 @@
+from ultron.cognition.reasoning.state import ReasoningState
+
+from .base import ReasoningStage
+
+
+class IntentStage(ReasoningStage):
+    """
+    Resolve the canonical intent for the current reasoning cycle.
+
+    Perception normally provides the authoritative intent. However,
+    generic "conversation" is treated as a weak classification when
+    the actual request contains a strong operational command.
+
+    This stage therefore protects high-value executable intents such as:
+        - create_file
+        - write_file
+        - read_file
+        - list_directory
+        - build_project
+        - open_application
+
+    The goal is to prevent a natural-language coding/file request from
+    being incorrectly routed into RESPOND merely because perception
+    classified it as conversation.
+    """
+
+    _SUPPORTED_INTENTS = {
+        "conversation",
+        "system_information",
+        "get_disk_usage",
+        "open_application",
+        "build_project",
+        "create_file",
+        "write_file",
+        "read_file",
+        "list_directory",
+        "question",
+        "search",
+        "memory_store",
+        "query_time",
+        "query_weather",
+        "self_analysis",
+        "improve_self",
+    }
+
+    # Strong operational verbs for file creation.
+    _CREATE_FILE_WORDS = (
+        "create",
+        "make",
+        "generate",
+        "write",
+        "produce",
+        "build",
+    )
+
+    # Strong operational verbs for modifying an existing file.
+    _WRITE_FILE_WORDS = (
+        "write",
+        "save",
+        "update",
+        "edit",
+        "modify",
+        "change",
+        "replace",
+    )
+
+    # Words that strongly indicate the object is a file.
+    _FILE_WORDS = (
+        "file",
+        "script",
+        "program",
+        "module",
+        "source file",
+    )
+
+    _FILE_EXTENSIONS = (
+        ".py",
+        ".js",
+        ".ts",
+        ".tsx",
+        ".jsx",
+        ".java",
+        ".c",
+        ".cpp",
+        ".h",
+        ".hpp",
+        ".rs",
+        ".go",
+        ".rb",
+        ".php",
+        ".swift",
+        ".kt",
+        ".kts",
+        ".sh",
+        ".bash",
+        ".zsh",
+        ".txt",
+        ".md",
+        ".json",
+        ".yaml",
+        ".yml",
+        ".toml",
+        ".ini",
+        ".cfg",
+        ".xml",
+        ".html",
+        ".css",
+        ".sql",
+    )
+
+    def run(
+        self,
+        state: ReasoningState,
+    ) -> ReasoningState:
+
+        understanding = state.context.understanding
+
+        # ---------------------------------------------------------
+        # Gather the actual user text.
+        #
+        # Depending on the understanding implementation, the most
+        # reliable source may be query or summary. Use both.
+        # ---------------------------------------------------------
+
+        query = str(
+            getattr(
+                state.context,
+                "query",
+                "",
+            )
+            or ""
+        )
+
+        summary = str(
+            getattr(
+                understanding,
+                "summary",
+                "",
+            )
+            or ""
+        )
+
+        text = " ".join(
+            part.strip()
+            for part in (query, summary)
+            if part and part.strip()
+        ).lower()
+
+        # Remove repeated whitespace.
+        text = " ".join(text.split())
+
+        perception_intent = (
+            understanding.context.get("intent")
+        )
+
+        # ---------------------------------------------------------
+        # First: recover strong executable intent.
+        #
+        # This happens BEFORE accepting "conversation".
+        #
+        # Example:
+        #
+        # "Create a Python program called system_monitor.py..."
+        #
+        # If perception says conversation but the text clearly
+        # requests file creation, create_file wins.
+        # ---------------------------------------------------------
+
+        recovered_intent = self._recover_operational_intent(text)
+
+        if recovered_intent is not None:
+
+            intent, confidence = recovered_intent
+
+            # Only mark this as perception when perception actually
+            # agreed. Otherwise make the correction explicit.
+            if perception_intent == intent:
+                source = "perception"
+                explicit = True
+
+                state.trace.append(
+                    f"Intent preserved from perception: {intent}"
+                )
+
+            else:
+                source = "operational_recovery"
+                explicit = True
+
+                state.trace.append(
+                    "Operational intent recovery overrode "
+                    f"perception intent '{perception_intent}': "
+                    f"{intent}"
+                )
+
+            state.metadata["intent_source"] = source
+            state.metadata["explicit_intent"] = explicit
+            state.metadata["intent_recovered"] = (
+                perception_intent != intent
+            )
+
+            state.metadata["intent_confidence"] = confidence
+
+            # Keep the corrected intent available to every later
+            # reasoning stage.
+            understanding.context["intent"] = intent
+
+            return state
+
+        # ---------------------------------------------------------
+        # Second: preserve a valid non-conversation perception intent.
+        #
+        # We only defer to generic "conversation" because it is the
+        # weakest useful interpretation for executable requests.
+        # ---------------------------------------------------------
+
+        if (
+            perception_intent in self._SUPPORTED_INTENTS
+            and perception_intent != "conversation"
+        ):
+
+            intent = perception_intent
+
+            state.metadata["intent_source"] = "perception"
+            state.metadata["explicit_intent"] = True
+
+            state.trace.append(
+                f"Intent preserved from perception: {intent}"
+            )
+
+            understanding.context["intent"] = intent
+
+            return state
+
+        # ---------------------------------------------------------
+        # Third: if perception said conversation and no strong
+        # operational command was recovered, keep conversation.
+        # ---------------------------------------------------------
+
+        if perception_intent == "conversation":
+
+            intent = "conversation"
+
+            state.metadata["intent_source"] = "perception"
+            state.metadata["explicit_intent"] = True
+            state.metadata["intent_confidence"] = 0.50
+
+            state.trace.append(
+                "Intent preserved from perception: conversation"
+            )
+
+            understanding.context["intent"] = intent
+
+            return state
+
+        # ---------------------------------------------------------
+        # Fourth: legacy text fallback.
+        # ---------------------------------------------------------
+
+        intent = self._fallback_intent(text)
+
+        state.metadata["intent_source"] = "text_fallback"
+        state.metadata["explicit_intent"] = False
+        state.metadata["intent_confidence"] = 0.50
+
+        state.trace.append(
+            f"Intent inferred from text: {intent}"
+        )
+
+        understanding.context["intent"] = intent
+
+        return state
+
+    # =============================================================
+    # OPERATIONAL INTENT RECOVERY
+    # =============================================================
+
+    def _recover_operational_intent(
+        self,
+        text: str,
+    ) -> tuple[str, float] | None:
+
+        if not text:
+            return None
+
+        # ---------------------------------------------------------
+        # Project creation must win over generic file creation.
+        # ---------------------------------------------------------
+
+        if (
+            self._contains_any(
+                text,
+                (
+                    "create",
+                    "make",
+                    "generate",
+                    "build",
+                    "start",
+                ),
+            )
+            and "project" in text
+        ):
+            return "build_project", 0.98
+
+        # ---------------------------------------------------------
+        # System information.
+        #
+        # Recover operational system-information requests even when
+        # perception classified the input as generic conversation.
+        # ---------------------------------------------------------
+
+        if self._contains_any(
+            text,
+            (
+                "get system info",
+                "get system information",
+                "system info",
+                "system information",
+                "system status",
+                "check system status",
+                "inspect the current system",
+                "inspect system",
+                "check the system",
+                "show system information",
+                "show system info",
+                "disk usage",
+            ),
+        ):
+            if "disk usage" in text:
+                return "get_disk_usage", 0.98
+            return "system_information", 0.98
+
+        # ---------------------------------------------------------
+        # File creation.
+        #
+        # Handles:
+        #   create a file
+        #   create a python program
+        #   make a script
+        #   generate test.py
+        #   write a file called x.py
+        # ---------------------------------------------------------
+
+        has_file_object = (
+            self._contains_any(
+                text,
+                self._FILE_WORDS,
+            )
+            or self._contains_file_extension(text)
+        )
+
+        if has_file_object:
+
+            if self._contains_any(
+                text,
+                self._CREATE_FILE_WORDS,
+            ):
+                return "create_file", 0.98
+
+            # Explicit modification language should route to
+            # write_file rather than conversation.
+            if self._contains_any(
+                text,
+                self._WRITE_FILE_WORDS,
+            ):
+                return "write_file", 0.97
+
+            # "open/read/show x.py" is a read operation.
+            if self._contains_any(
+                text,
+                (
+                    "read",
+                    "open",
+                    "show",
+                    "display",
+                    "view",
+                ),
+            ):
+                return "read_file", 0.96
+
+        # ---------------------------------------------------------
+        # Directory operations.
+        # ---------------------------------------------------------
+
+        if (
+            self._contains_any(
+                text,
+                (
+                    "list",
+                    "show",
+                    "display",
+            ),
+            )
+            and self._contains_any(
+                text,
+                (
+                    "directory",
+                    "folder",
+                    "files",
+                ),
+            )
+        ):
+            return "list_directory", 0.95
+
+        # ---------------------------------------------------------
+        # Application control.
+        # ---------------------------------------------------------
+
+        if self._contains_any(
+            text,
+            (
+                "open",
+                "launch",
+                "start",
+            ),
+        ):
+            return "open_application", 0.90
+
+        return None
+
+    # =============================================================
+    # FALLBACK INTENT
+    # =============================================================
+
+    def _fallback_intent(
+        self,
+        text: str,
+    ) -> str:
+
+        if not text:
+            return "unknown"
+
+        if (
+            self._contains_any(
+                text,
+                (
+                    "create",
+                    "new",
+                    "make",
+                    "build",
+                    "generate",
+                ),
+            )
+            and "project" in text
+        ):
+            return "build_project"
+
+        if (
+            self._contains_any(
+                text,
+                self._CREATE_FILE_WORDS,
+            )
+            and (
+                self._contains_any(
+                    text,
+                    self._FILE_WORDS,
+                )
+                or self._contains_file_extension(text)
+            )
+        ):
+            return "create_file"
+
+        if (
+            self._contains_any(
+                text,
+                self._WRITE_FILE_WORDS,
+            )
+            and (
+                self._contains_any(
+                    text,
+                    self._FILE_WORDS,
+                )
+                or self._contains_file_extension(text)
+            )
+        ):
+            return "write_file"
+
+        if (
+            self._contains_any(
+                text,
+                (
+                    "read",
+                    "show",
+                    "open",
+                ),
+            )
+            and (
+                "file" in text
+                or self._contains_file_extension(text)
+            )
+        ):
+            return "read_file"
+
+        if (
+            self._contains_any(
+                text,
+                (
+                    "list",
+                    "show",
+                ),
+            )
+            and self._contains_any(
+                text,
+                (
+                    "file",
+                    "files",
+                    "directory",
+                    "folder",
+                ),
+            )
+        ):
+            return "list_directory"
+
+        if self._contains_any(
+            text,
+            (
+                "open",
+                "launch",
+                "start",
+            ),
+        ):
+            return "open_application"
+
+        if self._contains_any(
+            text,
+            (
+                "remember",
+                "save",
+                "store",
+            ),
+        ):
+            return "memory_store"
+
+        if self._contains_any(
+            text,
+            (
+                "time",
+                "clock",
+            ),
+        ):
+            return "query_time"
+
+        if self._contains_any(
+            text,
+            (
+                "weather",
+                "temperature",
+            ),
+        ):
+            return "query_weather"
+
+        if self._contains_any(
+            text,
+            (
+                "search",
+                "find",
+                "look up",
+            ),
+        ):
+            return "search"
+
+        return "unknown"
+
+    # =============================================================
+    # HELPERS
+    # =============================================================
+
+    @staticmethod
+    def _contains_any(
+        text: str,
+        words: tuple[str, ...],
+    ) -> bool:
+
+        return any(
+            word in text
+            for word in words
+        )
+
+    @classmethod
+    def _contains_file_extension(
+        cls,
+        text: str,
+    ) -> bool:
+
+        return any(
+            extension in text
+            for extension in cls._FILE_EXTENSIONS
+        )

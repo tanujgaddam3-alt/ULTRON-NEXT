@@ -1,0 +1,24 @@
+from dataclasses import dataclass
+from datetime import datetime
+
+
+@dataclass
+class PricePoint:
+
+    symbol: str
+
+    price: float
+
+    timestamp: datetime
+
+
+@dataclass
+class MarketSnapshot:
+
+    symbol: str
+
+    current_price: float
+
+    change_percent: float
+
+    timestamp: datetime

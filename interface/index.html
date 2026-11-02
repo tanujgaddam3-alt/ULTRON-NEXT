@@ -1,0 +1,673 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <title>ULTRON | Operator Console</title>
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg?v=20261030-cre-phase31-1">
+  <link rel="stylesheet" href="./operator-console.css?v=20261029-cre-folder-import-6">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#overview" aria-label="ULTRON operator console home">
+      <span class="brand-mark" aria-hidden="true">U</span>
+      <span><strong>ULTRON</strong><small>OPERATOR CONSOLE</small></span>
+    </a>
+    <div class="connection" aria-live="polite">
+      <span id="connectionDot" class="dot" aria-hidden="true"></span>
+      <span id="connectionLabel">Connecting to backend…</span>
+    </div>
+    <div class="top-actions">
+      <span id="authLabel" class="auth-label">Chat authentication unavailable</span>
+      <button id="reconnectButton" class="button button-quiet" type="button">Reconnect</button>
+      <button id="inspectorButton" class="button button-quiet" type="button" aria-expanded="false" aria-controls="inspector">Subsystem status</button>
+    </div>
+  </header>
+
+  <div class="shell">
+    <nav class="navigation" aria-label="Main navigation">
+      <details class="nav-workspace" open>
+        <summary>ULTRON Core</summary>
+        <div class="nav-workspace-items">
+          <button class="nav-button active" type="button" data-view="overview" aria-current="page">Overview</button>
+          <button class="nav-button" type="button" data-view="chat">Chat</button>
+          <button class="nav-button" type="button" data-view="agents">Agents</button>
+          <button class="nav-button" type="button" data-view="diagnostics">System Health</button>
+          <button class="nav-button" type="button" data-view="activity">Activity &amp; Events</button>
+          <button class="nav-button" type="button" data-view="core-settings" data-implemented="false">Settings</button>
+          <button class="nav-button" type="button" data-view="operations">Operations</button>
+          <button class="nav-button" type="button" data-view="telemetry">Telemetry</button>
+          <button class="nav-button" type="button" data-view="voice">Voice</button>
+          <button class="nav-button" type="button" data-view="tools">Tools &amp; Skills</button>
+        </div>
+      </details>
+      <details class="nav-workspace" open>
+        <summary>Trading</summary>
+        <div class="nav-workspace-items">
+          <button class="nav-button" type="button" data-view="trading">Trading Overview</button>
+          <button class="nav-button" type="button" data-view="market-data">Market Data</button>
+          <button class="nav-button" type="button" data-view="portfolio">Portfolio &amp; Positions</button>
+          <button class="nav-button" type="button" data-view="trading-strategies" data-implemented="false">Strategies</button>
+          <button class="nav-button" type="button" data-view="trading-orders" data-implemented="false">Orders &amp; Execution</button>
+          <button class="nav-button" type="button" data-view="trading-history">Trading History</button>
+          <button class="nav-button" type="button" data-view="trading-risk" data-implemented="false">Risk &amp; Performance</button>
+        </div>
+      </details>
+      <details class="nav-workspace" open>
+        <summary>Content Revenue Engine</summary>
+        <div class="nav-workspace-items">
+          <button class="nav-button" type="button" data-view="cre">CRE Overview</button>
+          <button class="nav-button" type="button" data-view="cre-library" data-implemented="false">Content Library</button>
+          <button class="nav-button" type="button" data-view="cre-rights" data-implemented="false">Rights &amp; Sources</button>
+          <button class="nav-button" type="button" data-view="cre-highlights">Transcription &amp; Highlights</button>
+          <button class="nav-button" type="button" data-view="cre-production">Clip Production</button>
+          <button class="nav-button" type="button" data-view="cre-publishing" data-implemented="false">Publishing Queue</button>
+          <button class="nav-button" type="button" data-view="cre-analytics" data-implemented="false">Platform Analytics</button>
+          <button class="nav-button" type="button" data-view="cre-revenue" data-implemented="false">Revenue &amp; Payouts</button>
+          <button class="nav-button" type="button" data-view="cre-goals" data-implemented="false">Business Goals</button>
+        </div>
+      </details>
+      <details class="nav-workspace" open>
+        <summary>OMEGA</summary>
+        <div class="nav-workspace-items">
+          <button class="nav-button" type="button" data-view="omega">OMEGA Overview</button>
+          <button class="nav-button" type="button" data-view="omega-intelligence">Capability Registry</button>
+          <button class="nav-button" type="button" data-view="omega-evidence">Improvement Evidence</button>
+          <button class="nav-button" type="button" data-view="omega-diagnostics">Safety &amp; Recovery</button>
+          <button class="nav-button" type="button" data-view="omega-link">Integration Link</button>
+          <button class="nav-button" type="button" data-view="omega-exchanges">Integration Exchanges</button>
+        </div>
+      </details>
+      <div class="nav-note">
+        <span class="eyebrow">DATA SOURCE</span>
+        <p>Authenticated ULTRON runtime</p>
+        <small id="navProvenance">No verified connection</small>
+      </div>
+    </nav>
+
+    <main id="mainContent" class="workspace" tabindex="-1">
+      <section class="view active" id="view-overview" aria-labelledby="overviewTitle">
+        <div class="page-heading">
+          <div><p class="eyebrow">RUNTIME</p><h1 id="overviewTitle">System overview</h1></div>
+          <p class="updated">Last backend update <time id="lastUpdate">—</time></p>
+        </div>
+        <div id="disconnectNotice" class="notice notice-warning" role="status">
+          No live backend data. Values remain unavailable until the runtime connection is verified.
+        </div>
+        <div class="summary-grid">
+          <article class="panel summary-card">
+            <p class="eyebrow">BACKEND CONNECTION</p>
+            <strong id="overviewConnection" class="summary-value">UNKNOWN</strong>
+            <p id="overviewConnectionDetail" class="muted">Waiting for a verified subscription.</p>
+          </article>
+          <article class="panel summary-card">
+            <p class="eyebrow">RUNTIME STATE</p>
+            <strong id="runtimeState" class="summary-value">UNAVAILABLE</strong>
+            <p id="runtimeDetail" class="muted">No runtime snapshot received.</p>
+          </article>
+          <article class="panel summary-card">
+            <p class="eyebrow">ACTIVE OPERATIONS</p>
+            <strong id="activeOperationCount" class="summary-value">UNKNOWN</strong>
+            <p class="muted">Visible operations from the current runtime snapshot.</p>
+          </article>
+          <article class="panel summary-card">
+            <p class="eyebrow">REGISTERED AGENTS</p>
+            <strong id="agentCount" class="summary-value">UNKNOWN</strong>
+            <p class="muted">From the runtime agent registry snapshot.</p>
+          </article>
+          <article class="panel summary-card">
+            <p class="eyebrow">TRADING MODE</p>
+            <strong id="overviewTradingMode" class="summary-value">UNKNOWN</strong>
+            <p id="overviewTradingDetail" class="muted">No financial telemetry snapshot received.</p>
+            <button class="text-button" type="button" data-go="trading">Open Trading Center</button>
+          </article>
+          <article class="panel summary-card">
+            <p class="eyebrow">OMEGA-REPORTED HEALTH</p>
+            <strong id="overviewOmegaHealth" class="summary-value">UNKNOWN</strong>
+            <p id="overviewOmegaHealthDetail" class="muted">No authenticated OMEGA status received.</p>
+            <button class="text-button" type="button" data-go="omega">Open OMEGA Overview</button>
+          </article>
+          <article class="panel summary-card">
+            <p class="eyebrow">ULTRON ↔ OMEGA LINK</p>
+            <strong id="overviewOmegaLink" class="summary-value">UNKNOWN</strong>
+            <p id="overviewOmegaLinkDetail" class="muted">No integration snapshot received.</p>
+            <button class="text-button" type="button" data-go="omega-link">Open Integration Link</button>
+          </article>
+          <article class="panel summary-card">
+            <p class="eyebrow">VOICE SERVICE</p>
+            <strong id="overviewVoiceStatus" class="summary-value">UNKNOWN</strong>
+            <p id="overviewVoiceDetail" class="muted">Voice API health has not been checked.</p>
+            <button class="text-button" type="button" data-go="voice">Open Voice</button>
+          </article>
+        </div>
+        <div class="overview-columns">
+          <section class="panel">
+            <div class="panel-heading"><div><p class="eyebrow">RUNTIME EVENTS</p><h2>Recent activity</h2></div><button class="text-button" type="button" data-go="activity">View all</button></div>
+            <ol id="overviewEvents" class="event-list"><li class="empty-state">No event data received.</li></ol>
+          </section>
+          </details>
+          <section class="panel">
+            <div class="panel-heading"><div><p class="eyebrow">HOST SNAPSHOT</p><h2>System facts</h2></div></div>
+            <dl id="hostFacts" class="fact-list"><div><dt>Status</dt><dd>Unavailable</dd></div></dl>
+          </section>
+        </div>
+        <p class="source-note">Values are populated only from subscribed backend snapshots. “Received” timestamps are recorded by this browser when a payload arrives; they are not backend event times.</p>
+      </section>
+
+      <section class="view" id="view-cre-highlights" aria-labelledby="creHighlightsTitle" hidden>
+        <div class="page-heading"><div><p class="eyebrow">SOURCE VIDEO WORKFLOW</p><h1 id="creHighlightsTitle">Transcription &amp; Highlights</h1></div></div>
+        <section class="panel trading-panel">
+          <p class="notice notice-warning">Upload only video you own or are authorized to edit. Private review does not publish or grant rights; existing publication controls remain separate.</p>
+          <h2>Registered-source transcription and highlights</h2>
+          <p class="muted">Check rights for an owner-registered asset, resume its transcription after rights clearance, and review returned transcript segments and highlight candidates here. Use CRE Overview for autonomous source-video editing.</p>
+          <div class="dialog-actions"><button class="button button-quiet" type="button" data-go="cre">Open autonomous video editor</button></div>
+          <details id="creRightsReviewDetails">
+            <summary>Formal rights review and registered asset workflow</summary>
+          <label for="creSourceAssetId">Registered asset ID</label>
+          <input id="creSourceAssetId" maxlength="200">
+          <button id="creSourceAssetCheck" class="button" type="button">Load asset and check current rights</button>
+          <p id="creSourceRightsStatus" class="notice notice-warning">Rights have not been independently reviewed.</p>
+          <label for="creSourceRightsRequest">Rights-system request (JSON)</label>
+          <textarea id="creSourceRightsRequest" rows="8" spellcheck="false" aria-describedby="creRightsWorkflowHelp"></textarea>
+          <label for="creSourceRightsFile">Evidence file for submit_claim or create_agreement <span class="muted">(up to 2 MB)</span></label>
+          <input id="creSourceRightsFile" type="file">
+          <p id="creRightsWorkflowHelp" class="source-note">
+            For submit_claim and create_agreement, omit evidenceBase64/agreementBase64 from the JSON;
+            the selected file is encoded locally for that request. Use the existing rights steps in order:
+            submit_claim, read_evidence, review_initial,
+            register_authority, review_authority, create_agreement, review_agreement, record_grant.
+            Submitter operations require the asset owner session; review operations require the
+            separately configured reviewer principal. Decisions are never automatic.
+          </p>
+          <details>
+            <summary>Required fields for each rights step</summary>
+            <p class="source-note">
+              All request objects include <code>step</code>. submit_claim: assetId, targetContext,
+              accountId, territory, rightsHolder, authorityDescription, evidenceKind,
+              evidenceReference, terms. read_evidence: evidenceId. review_initial: evidenceId,
+              grantorId, decision, reason. register_authority: assetId, claimId, evidenceId,
+              grantorId, rightsHolder, relationship, scopeDescription, evidenceReference,
+              evidenceSha256. review_authority: authorityId, decision, evidenceSha256, reason.
+              create_agreement: evidenceReference, terms, grantorId, authorityId, assetId,
+              rightsHolder. review_agreement: agreementId, agreementVersion, decision, reason.
+              record_grant: assetId, claimId, evidenceId, agreementId, agreementVersion.
+              Decisions are verified, rejected, or ambiguous. Use the returned IDs and hashes;
+              do not copy them across assets. Rights terms must include the exact platform,
+              account_scope, territories, validity interval, duration limit, and permitted_actions
+              analyze plus create_derivative only.
+            </p>
+          </details>
+          <button id="creSourceRightsSubmit" class="button" type="button">Submit rights-system step</button>
+          <pre id="creSourceRightsResult" class="notice" role="status" aria-live="polite"></pre>
+          </details>
+          <button id="creSourceResume" class="button button-primary" type="button" disabled>Resume transcription after rights clearance</button>
+          <div id="creTranscript" class="trading-record-list" aria-live="polite"></div>
+          <div id="creCandidates" class="trading-record-list" aria-live="polite"></div>
+        </section>
+      </section>
+
+      <section class="view" id="view-cre-production" aria-labelledby="creProductionTitle" hidden>
+        <div class="page-heading"><div><p class="eyebrow">SOURCE-FOOTAGE CLIP</p><h1 id="creProductionTitle">Clip Production</h1></div></div>
+        <section class="panel trading-panel">
+          <p id="creClipFeedback" class="notice" role="status" aria-live="polite">Select a transcript-linked candidate from Transcription &amp; Highlights.</p>
+          <video id="creSourceClipVideo" controls playsinline preload="metadata" aria-label="Rendered source-footage clip" hidden></video>
+          <a id="creSourceClipDownload" class="button button-primary" hidden>Download verified MP4</a>
+          <dl id="creSourceClipDetails" class="fact-list"></dl>
+        </section>
+      </section>
+
+      <section class="view" id="view-chat" aria-labelledby="chatTitle" hidden>
+        <div class="page-heading">
+          <div><p class="eyebrow">AUTHENTICATED INTERACTION</p><h1 id="chatTitle">Chat with ULTRON</h1></div>
+          <span id="chatCapability" class="state-pill state-unknown">Checking authentication</span>
+        </div>
+        <div id="chatNotice" class="notice" role="status">Chat requires an authenticated live backend session.</div>
+        <section class="panel chat-panel">
+          <ol id="chatHistory" class="chat-history" aria-live="polite" aria-label="Conversation">
+            <li id="chatEmpty" class="empty-state">No messages in this session.</li>
+          </ol>
+          <form id="chatForm" class="chat-form">
+            <label class="sr-only" for="chatInput">Message ULTRON</label>
+            <textarea id="chatInput" maxlength="12000" rows="3" placeholder="Write a message. Enter sends; Shift+Enter adds a line." required></textarea>
+            <div class="form-footer">
+              <span id="chatProgress" class="muted" role="status">Messages are sent only over the authenticated backend connection.</span>
+              <button id="chatSend" class="button button-primary" type="submit" disabled>Send message</button>
+            </div>
+          </form>
+        </section>
+      </section>
+
+        <section class="view" id="view-trading" aria-labelledby="tradingTitle" hidden>
+          <div class="page-heading"><div><p class="eyebrow">BACKEND FINANCIAL SNAPSHOT</p><h1 id="tradingTitle">Trading Overview</h1></div><span id="tradingMode" class="state-pill state-unknown">Unknown</span></div>
+          <div class="notice notice-warning" role="note">Read-only trading telemetry. This console does not submit or approve orders. Live trading is not enabled by this interface.</div>
+          <div class="summary-grid trading-summary-grid">
+            <article class="panel summary-card"><p class="eyebrow">TRADING COMPONENTS</p><strong id="tradingAvailability" class="summary-value">UNKNOWN</strong><p id="tradingAvailabilityDetail" class="muted">No financial snapshot received.</p></article>
+            <article class="panel summary-card"><p class="eyebrow">MARKET DATA</p><strong id="tradingMarketState" class="summary-value">UNKNOWN</strong><p id="tradingMarketDetail" class="muted">No market-data snapshot received.</p></article>
+            <article class="panel summary-card"><p class="eyebrow">PORTFOLIO</p><strong id="tradingPositionCount" class="summary-value">UNKNOWN</strong><p id="tradingPortfolioDetail" class="muted">No portfolio snapshot received.</p></article>
+            <article class="panel summary-card"><p class="eyebrow">RISK COMPONENTS</p><strong id="tradingRiskState" class="summary-value">UNKNOWN</strong><p id="tradingRiskDetail" class="muted">No risk-control snapshot received.</p></article>
+          </div>
+          <div class="overview-columns">
+            <section class="panel trading-panel">
+              <div class="panel-heading"><div><p class="eyebrow">LATEST VALIDATED INPUT</p><h2>Market snapshot</h2></div><button class="text-button" type="button" data-go="market-data">Details</button></div>
+              <dl id="tradingOverviewMarket" class="fact-list"><div><dt>Status</dt><dd>Unavailable</dd></div></dl>
+            </section>
+            <section class="panel trading-panel">
+              <div class="panel-heading"><div><p class="eyebrow">CURRENT ACCOUNT SNAPSHOT</p><h2>Portfolio</h2></div><button class="text-button" type="button" data-go="portfolio">Details</button></div>
+              <dl id="tradingOverviewPortfolio" class="fact-list"><div><dt>Status</dt><dd>Unavailable</dd></div></dl>
+            </section>
+          </div>
+          <section class="panel trading-panel trading-limitations">
+            <h2>Not exposed by the current operator contract</h2>
+            <p>Strategy analysis and decision identifiers, individual risk-check results and rejection reasons, order submission and authoritative order status, and strategy configuration are not published to this interface. No execution or fill is inferred from the trade ledger.</p>
+            <ol id="tradingDiagnostics" class="trading-diagnostics"><li class="empty-state">No trading diagnostics received.</li></ol>
+          </section>
+        </section>
+
+        <section class="view" id="view-market-data" aria-labelledby="marketDataTitle" hidden>
+          <div class="page-heading"><div><p class="eyebrow">VALIDATED PROVIDER SNAPSHOT</p><h1 id="marketDataTitle">Market Data</h1></div><span id="marketDataState" class="state-pill state-unknown">Unknown</span></div>
+          <div class="notice" role="note">Values are copied from the gateway's validated market-data snapshot. Missing fields remain unavailable; this view does not make a market-data request.</div>
+          <section class="panel trading-panel"><dl id="marketDataFacts" class="fact-list"><div><dt>Status</dt><dd>Unavailable</dd></div></dl></section>
+        </section>
+
+        <section class="view" id="view-portfolio" aria-labelledby="portfolioTitle" hidden>
+          <div class="page-heading"><div><p class="eyebrow">BROKER-SOURCED ACCOUNT SNAPSHOT</p><h1 id="portfolioTitle">Portfolio &amp; Positions</h1></div><span id="portfolioMode" class="state-pill state-unknown">Unknown mode</span></div>
+          <div class="notice" role="note">The backend-reported execution mode and broker source are shown for context. Values are not projections; unrealized P&amp;L and exposure are not published in this snapshot.</div>
+          <section class="panel trading-panel"><dl id="portfolioFacts" class="fact-list"><div><dt>Status</dt><dd>Unavailable</dd></div></dl></section>
+          <section class="panel trading-panel"><div class="panel-heading"><div><p class="eyebrow">BACKEND POSITIONS</p><h2>Open positions</h2></div><span id="portfolioPositionCount" class="state-pill state-unknown">Unknown</span></div><div id="portfolioPositions" class="trading-record-list"><p class="empty-state">No portfolio snapshot received.</p></div></section>
+        </section>
+
+        <section class="view" id="view-trading-history" aria-labelledby="tradingHistoryTitle" hidden>
+          <div class="page-heading"><div><p class="eyebrow">CURRENT BROKER LEDGER SNAPSHOT</p><h1 id="tradingHistoryTitle">Trading History</h1></div><span id="tradingHistoryCount" class="state-pill state-unknown">Unavailable</span></div>
+          <div class="notice notice-warning" role="note">The gateway publishes trade-ledger records, not complete order or decision history. These records alone do not establish accepted, filled, or verified order status.</div>
+          <section class="panel trading-panel"><div id="tradingHistoryList" class="trading-record-list"><p class="empty-state">No trading snapshot received.</p></div></section>
+        </section>
+
+        <section class="view" id="view-cre" aria-labelledby="creTitle" hidden>
+          <div class="page-heading">
+            <div><p class="eyebrow">LOCAL CONTENT REVENUE ENGINE</p><h1 id="creTitle">CRE Overview</h1></div>
+            <div class="cre-heading-actions">
+              <span id="creStatusPill" class="state-pill state-unknown">Loading</span>
+              <button id="creRefreshButton" class="button button-quiet" type="button">Refresh status</button>
+            </div>
+          </div>
+          <div id="creStatusNotice" class="notice notice-warning" role="status">Waiting for an authenticated CRE status response.</div>
+          <section class="panel trading-panel" aria-labelledby="creAutonomousEditorTitle">
+            <div class="cre-editor-heading">
+              <div>
+                <p class="eyebrow">PRIVATE VIDEO WORKSPACE</p>
+                <h2 id="creAutonomousEditorTitle">Autonomous video editor</h2>
+                <p class="muted">Import source videos, select the edit inputs, then let ULTRON plan and render a private review.</p>
+              </div>
+            </div>
+            <section class="cre-folder-import" aria-labelledby="creFolderImportTitle">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">IMPORT FROM FOLDER</p>
+                  <h3 id="creFolderImportTitle">Import videos</h3>
+                  <p class="muted">Scan an explicitly authorized directory on the local CRE service. The browser does not read arbitrary filesystem paths.</p>
+                </div>
+                <button id="creFolderScan" class="button button-quiet" type="button" disabled>Scan folder</button>
+              </div>
+              <label class="cre-folder-path-label" for="creFolderPath">Local directory path</label>
+              <input id="creFolderPath" class="cre-folder-path" type="text" value="/home/ultron/Videos/CRE_Import" maxlength="4096" autocomplete="off" spellcheck="false" aria-describedby="creFolderAvailability">
+              <p id="creFolderAvailability" class="source-note" role="status" aria-live="polite">Backend connection and authentication status will appear here.</p>
+              <ul id="creFolderFileList" class="cre-folder-file-list" aria-live="polite" aria-label="Videos found in the CRE import folder">
+                <li class="cre-file-empty">Authenticate, then scan the authorized folder to see available videos.</li>
+              </ul>
+              <div class="cre-folder-import-actions">
+                <button id="creFolderRegister" class="button" type="button" disabled>Register selected videos</button>
+                <p id="creFolderFeedback" class="notice" role="status" aria-live="polite">No folder scan requested.</p>
+              </div>
+            </section>
+            <div class="cre-upload-toolbar">
+              <div class="cre-add-menu" id="creAddMenu">
+                <button id="creAddMenuToggle" class="cre-add-button" type="button" aria-label="Add video files" aria-haspopup="menu" aria-expanded="false" aria-controls="creAddMenuList">+</button>
+                <div id="creAddMenuList" class="cre-add-menu-list" role="menu" aria-label="Add videos" hidden>
+                  <label id="creUploadMenuItem" role="menuitem" tabindex="-1" data-cre-file-action="upload">
+                    Upload from device
+                    <input id="creSourceVideo" class="cre-source-input" type="file" tabindex="-1" multiple accept="video/mp4,video/webm,video/quicktime,video/x-matroska,.mp4,.webm,.mov,.mkv" aria-label="Select video files" aria-describedby="creSourceSelectedFile">
+                  </label>
+                  <button type="button" role="menuitem" data-cre-file-action="clear" hidden>Clear selection</button>
+                </div>
+              </div>
+              <div>
+                <strong id="creSourceCount" class="cre-source-count" aria-live="polite">No videos selected</strong>
+                <p class="source-note">Select one or more videos · up to 32 MiB each · MP4, WebM, MOV, or MKV</p>
+              </div>
+            </div>
+            <ul id="creSourceSelectedFile" class="cre-file-list" tabindex="0" aria-live="polite" aria-label="Selected videos. Drop supported video files here to add them.">
+              <li class="cre-file-empty">No local video selected.</li>
+            </ul>
+            <p class="source-note">Drop supported videos here or use + to select files. Each file must be no larger than 32 MiB.</p>
+            <label class="cre-direction-label" for="creAutonomousInstruction">Creative direction <span class="muted">Optional</span></label>
+            <textarea id="creAutonomousInstruction" rows="4" maxlength="20000" placeholder="Describe the mood, pacing, opening, or purpose. Leave blank for autonomous default editing."></textarea>
+            <div class="cre-editor-actions">
+              <button id="creProjectCreate" class="button button-primary" type="button" disabled>Start editing</button>
+              <button id="creProjectRender" class="button" type="button" hidden disabled>Recover render</button>
+            </div>
+            <label class="cre-direction-label" for="creRevisionInstruction">Revision request <span class="muted">Optional</span></label>
+            <input id="creRevisionInstruction" maxlength="20000" placeholder="Example: Make the pacing slower and emphasize the second clip">
+            <button id="creRevisionRender" class="button button-quiet" type="button" hidden>Apply revision and re-render</button>
+            <p id="creSourceFeedback" class="notice" role="status" aria-live="polite">No source video processed.</p>
+            <p id="creProjectFeedback" class="notice" role="status" aria-live="polite">Select one or more videos, add optional direction, then start editing.</p>
+            <video id="creProjectOutputVideo" controls preload="metadata" hidden></video>
+            <a id="creProjectOutputDownload" class="button" download="cre-private-review.mp4" hidden>Download private review</a>
+            <textarea id="creProjectScript" maxlength="20000" hidden></textarea>
+          </section>
+          <p class="source-note">Source registration, planning, and private rendering use the authenticated CRE workflow. No content is published.</p>
+          <details class="cre-script-preview-details">
+            <summary>Secondary workflow: create a narrated preview from original script text</summary>
+          <section class="panel trading-panel" aria-labelledby="creScriptPreviewTitle">
+            <div class="panel-heading"><div><p class="eyebrow">ORIGINAL SCRIPT PILOT</p><h2 id="creScriptPreviewTitle">Create a local narrated preview</h2></div></div>
+            <p class="notice notice-warning">This creates a local MP4 with deterministic script-derived diagrams, burned-in captions, and low-fidelity English narration from the installed FFmpeg Flite voice. Narration naturalness and intelligibility are not human-reviewed. It does not add source media, transcription, factual verification, rights clearance, human approval, or publication. References remain unverified operator-supplied URLs.</p>
+            <p class="muted">This separate tool accepts original script text, not video paths. Use Import videos above to select local footage.</p>
+            <div class="dialog-actions"><button class="button button-quiet" type="button" data-go="cre-highlights">Open transcription &amp; highlights</button></div>
+            <form id="creScriptPreviewForm">
+              <label for="creScriptInput">Original script <span class="muted">(up to 20,000 Unicode characters)</span></label>
+              <textarea id="creScriptInput" name="script" rows="7" required data-max-script-characters="20000" aria-describedby="creScriptCharacterCount"></textarea>
+              <p id="creScriptCharacterCount" class="source-note" aria-live="polite">0 / 20,000 characters</p>
+              <label for="creScriptReferences">Reference URLs <span class="muted">(one HTTPS URL per line; optional)</span></label>
+              <textarea id="creScriptReferences" name="references" rows="3" placeholder="https://example.org/source"></textarea>
+              <div class="dialog-actions"><button id="creScriptPreviewButton" class="button button-primary" type="submit">Generate local preview</button></div>
+            </form>
+            <p id="creScriptPreviewFeedback" class="notice" role="status" aria-live="polite">No script preview requested.</p>
+            <section aria-labelledby="creAudioEvidenceTitle">
+              <h3 id="creAudioEvidenceTitle">Durable audio evidence</h3>
+              <p class="muted">Owner-scoped source measurements are independently checked when authenticated CRE status is refreshed. Cached status is labeled stale while disconnected.</p>
+              <div id="creAudioEvidenceList" class="trading-record-list"><p class="empty-state">No authenticated evidence status received.</p></div>
+            </section>
+            <section id="creScriptPreviewOutput" aria-label="Script preview result" hidden>
+              <video id="creScriptPreviewVideo" controls playsinline preload="metadata" aria-label="Local narrated script preview"></video>
+              <section aria-labelledby="creSceneVisualGalleryTitle">
+                <h3 id="creSceneVisualGalleryTitle">Persisted scene visuals</h3>
+                <p class="muted">Each image is returned from the authenticated preview record and checked against its scene contract, source excerpt, and stored hash. Technical validation is not editorial or factual approval.</p>
+                <div id="creSceneVisualGallery" class="trading-record-list"><p class="empty-state">No scene visuals returned.</p></div>
+              </section>
+              <dl id="creScriptPreviewManifest" class="fact-list"></dl>
+              <form id="creScriptPreviewReviewForm">
+                <h3>Record an editorial review</h3>
+                <p class="notice notice-warning">This records the authenticated artifact owner's own review, bound to this exact preview hash. It is not independent approval, rights clearance, or permission to publish.</p>
+                <label for="creScriptEditorialVerdict">Editorial recommendation</label>
+                <select id="creScriptEditorialVerdict" required>
+                  <option value="" selected disabled>Select a recommendation</option>
+                  <option value="READY_FOR_FACTUAL_REVIEW">Ready for separate factual and rights review</option>
+                  <option value="REVISIONS_REQUIRED">Revisions required</option>
+                  <option value="REJECTED">Reject this draft</option>
+                </select>
+                <label for="creScriptNarrationAssessment">Narration intelligibility</label>
+                <select id="creScriptNarrationAssessment" required>
+                  <option value="" selected disabled>Select an assessment</option>
+                  <option value="INTELLIGIBLE">Intelligible</option>
+                  <option value="UNINTELLIGIBLE">Unintelligible</option>
+                </select>
+                <label for="creScriptPacingAssessment">Narration pacing</label>
+                <select id="creScriptPacingAssessment" required>
+                  <option value="" selected disabled>Select an assessment</option>
+                  <option value="TOO_FAST">Too fast</option>
+                  <option value="APPROPRIATE">Appropriate</option>
+                  <option value="TOO_SLOW">Too slow</option>
+                </select>
+                <label for="creScriptCaptionAssessment">Caption synchronization</label>
+                <select id="creScriptCaptionAssessment" required>
+                  <option value="" selected disabled>Select an assessment</option>
+                  <option value="SYNCHRONIZED">Synchronized</option>
+                  <option value="NEEDS_CORRECTION">Needs correction</option>
+                </select>
+                <label for="creScriptSceneAssessment">Scene coherence</label>
+                <select id="creScriptSceneAssessment" required>
+                  <option value="" selected disabled>Select an assessment</option>
+                  <option value="COHERENT">Coherent</option>
+                  <option value="NEEDS_CORRECTION">Needs correction</option>
+                </select>
+                <label class="checkbox-label" for="creScriptFactualAttestation">
+                  <input id="creScriptFactualAttestation" type="checkbox">
+                  I checked the script's factual claims against appropriate sources
+                </label>
+                <label for="creScriptReviewNotes">Review notes <span class="muted">(required for factual attestation; up to 1,200 characters)</span></label>
+                <textarea id="creScriptReviewNotes" rows="4" maxlength="1200"></textarea>
+                <div class="dialog-actions"><button id="creScriptReviewButton" class="button button-primary" type="submit">Record review</button></div>
+              </form>
+              <p id="creScriptReviewFeedback" class="notice" role="status" aria-live="polite">No editorial review recorded.</p>
+              <p class="source-note">The script and artifact hashes bind the technical output and review record. Rights remain unevaluated; approval is not granted and nothing is published.</p>
+            </section>
+          </section>
+          <p id="creServiceStatus" class="muted">Service status unavailable until CRE responds.</p>
+          <p class="updated">Backend snapshot generated <time id="creUpdatedAt">Not received</time></p>
+          <div class="summary-grid trading-summary-grid">
+            <article class="panel summary-card"><p class="eyebrow">ALL STORED JOBS</p><strong id="creTotalJobs" class="summary-value">UNKNOWN</strong><p class="muted">Owner-scoped count across processing, rendering, and publishing.</p></article>
+            <article class="panel summary-card"><p class="eyebrow">PROCESSING</p><strong id="creProcessingCount" class="summary-value">UNKNOWN</strong><p id="creProcessingDetail" class="muted">Unavailable until CRE responds.</p></article>
+            <article class="panel summary-card"><p class="eyebrow">RENDERING</p><strong id="creRenderingCount" class="summary-value">UNKNOWN</strong><p id="creRenderingDetail" class="muted">Unavailable until CRE responds.</p></article>
+            <article class="panel summary-card"><p class="eyebrow">PUBLISHING</p><strong id="crePublishingCount" class="summary-value">UNKNOWN</strong><p id="crePublishingDetail" class="muted">Unavailable until CRE responds.</p></article>
+          </div>
+          <section class="panel trading-panel cre-business-summary" aria-labelledby="creBusinessTitle">
+            <div class="panel-heading"><div><p class="eyebrow">BUSINESS PERFORMANCE</p><h2 id="creBusinessTitle">Business summary</h2></div></div>
+            <p id="creBusinessFreshness" class="source-note">Business reporting is unavailable until an authenticated CRE response is received.</p>
+            <div class="summary-grid cre-business-grid">
+              <article class="panel summary-card"><p class="eyebrow">SUCCESSFUL PUBLICATIONS</p><strong id="creSuccessfulPublications" class="summary-value">Unavailable</strong><p id="creSuccessfulPublicationsNote" class="muted">Confirmed publication outcomes are not exposed.</p></article>
+              <article class="panel summary-card"><p class="eyebrow">TOTAL VIEWS</p><strong id="creTotalViews" class="summary-value">Unavailable</strong><p class="muted">Platform analytics are not instrumented.</p></article>
+              <article class="panel summary-card"><p class="eyebrow">REPORTED REVENUE</p><strong id="creReportedRevenue" class="summary-value">Unavailable</strong><p class="muted">No platform-reported earnings source is connected.</p></article>
+              <article class="panel summary-card"><p class="eyebrow">CONFIRMED PAYOUTS</p><strong id="creConfirmedPayouts" class="summary-value">Unavailable</strong><p class="muted">No payout or financial ledger is available.</p></article>
+              <article class="panel summary-card"><p class="eyebrow">ACTIVE PRODUCTION JOBS</p><strong id="creProductionJobs" class="summary-value">UNKNOWN</strong><p id="creProductionJobsNote" class="muted">Awaiting owner-scoped CRE status.</p></article>
+              <article class="panel summary-card"><p class="eyebrow">AWAITING APPROVAL</p><strong id="creAwaitingApproval" class="summary-value">UNKNOWN</strong><p class="muted">Backend-reported publishing approvals.</p></article>
+              <article class="panel summary-card"><p class="eyebrow">FAILED OR UNCERTAIN JOBS</p><strong id="creFailedUncertain" class="summary-value">UNKNOWN</strong><p class="muted">Across processing, rendering, and publishing records.</p></article>
+              <article class="panel summary-card"><p class="eyebrow">BUSINESS GOAL PROGRESS</p><strong id="creGoalProgress" class="summary-value">Unavailable</strong><p class="muted">No configured goal or progress source is exposed.</p></article>
+            </div>
+          </section>
+          <section class="panel trading-panel" aria-labelledby="crePlatformsTitle">
+            <div class="panel-heading"><div><p class="eyebrow">PLATFORM PERFORMANCE</p><h2 id="crePlatformsTitle">Platform connections</h2></div></div>
+            <p class="source-note">The CRE status API does not report platform account connections or synchronization. No platform is presented as connected.</p>
+            <div class="inventory-list cre-platform-list">
+              <article class="inventory-card"><div class="inventory-heading"><h2>YouTube</h2><span class="state-pill state-unknown">Not reported</span></div><dl class="fact-list"><div><dt>Connection &amp; authorization</dt><dd>Unavailable</dd></div><div><dt>Published content / views</dt><dd>Not instrumented</dd></div><div><dt>Engagement / monetization</dt><dd>Not instrumented</dd></div><div><dt>Revenue / payout</dt><dd>Not available</dd></div><div><dt>Last synchronization</dt><dd>Not reported</dd></div></dl></article>
+              <article class="inventory-card"><div class="inventory-heading"><h2>Instagram</h2><span class="state-pill state-unknown">Not reported</span></div><dl class="fact-list"><div><dt>Connection &amp; authorization</dt><dd>Unavailable</dd></div><div><dt>Published content / views</dt><dd>Not instrumented</dd></div><div><dt>Engagement / monetization</dt><dd>Not instrumented</dd></div><div><dt>Revenue / payout</dt><dd>Not available</dd></div><div><dt>Last synchronization</dt><dd>Not reported</dd></div></dl></article>
+              <article class="inventory-card"><div class="inventory-heading"><h2>TikTok</h2><span class="state-pill state-unknown">Not reported</span></div><dl class="fact-list"><div><dt>Connection &amp; authorization</dt><dd>Unavailable</dd></div><div><dt>Published content / views</dt><dd>Not instrumented</dd></div><div><dt>Engagement / monetization</dt><dd>Not instrumented</dd></div><div><dt>Revenue / payout</dt><dd>Not available</dd></div><div><dt>Last synchronization</dt><dd>Not reported</dd></div></dl></article>
+            </div>
+          </section>
+          <section class="overview-columns cre-finance-columns" aria-label="Revenue categories and business goals">
+            <section class="panel trading-panel"><div class="panel-heading"><div><p class="eyebrow">REVENUE &amp; EXPENSES</p><h2>Financial records</h2></div></div><dl class="fact-list"><div><dt>Estimated earnings</dt><dd>Unavailable · no estimate source</dd></div><div><dt>Platform-reported earnings</dt><dd>Unavailable · no platform analytics</dd></div><div><dt>Confirmed payouts</dt><dd>Unavailable · no payout records</dd></div><div><dt>Tracked expenses</dt><dd>Unavailable · no expense ledger</dd></div><div><dt>Net revenue</dt><dd>Unavailable · inputs are not defined</dd></div><div><dt>Reporting period / update time</dt><dd id="creFinancialFreshness">Not reported</dd></div></dl></section>
+            <section class="panel trading-panel"><div class="panel-heading"><div><p class="eyebrow">BUSINESS GOALS</p><h2>Targets and progress</h2></div></div><dl class="fact-list"><div><dt>Configured goal</dt><dd>Unavailable · no goal configuration</dd></div><div><dt>Progress / remaining amount</dt><dd>Unavailable · no goal progress source</dd></div><div><dt>Estimated completion date</dt><dd>Unavailable · no historical series</dd></div></dl></section>
+          </section>
+          <div class="overview-columns">
+            <section class="panel trading-panel">
+              <div class="panel-heading"><div><p class="eyebrow">CONTENT PIPELINE</p><h2>Jobs and states</h2></div></div>
+              <div id="creJobsList" class="trading-record-list"><p class="empty-state">No CRE status response received.</p></div>
+            </section>
+            <section class="panel trading-panel">
+              <div class="panel-heading"><div><p class="eyebrow">CONTENT LIFECYCLE</p><h2>Lifecycle status</h2></div></div>
+                <p class="source-note">Recent owner-scoped lifecycle rows only; the status API does not provide complete rights-check or transcription/highlight stage totals.</p>
+                <div id="creLifecycleList" class="trading-record-list"><p class="empty-state">No CRE lifecycle response received.</p></div>
+            </section>
+          </div>
+          <section class="panel trading-panel">
+            <div class="panel-heading"><div><p class="eyebrow">PUBLISHING &amp; RECOVERY</p><h2>Stored publishing events</h2></div></div>
+            <p id="crePublishingMode" class="muted">Unavailable until CRE responds.</p>
+            <div id="creEventsList" class="trading-record-list"><p class="empty-state">No CRE event response received.</p></div>
+          </section>
+          <section class="panel trading-panel trading-limitations">
+            <h2>Analytics</h2>
+            <p id="creAnalyticsStatus">Unavailable: no instrumented CRE metrics were reported.</p>
+          </section>
+          <p class="source-note">CRE values are returned by the authenticated backend and scoped to the server-mapped operator owner. Disconnection retains only the last response and labels it stale.</p>
+        </section>
+
+      <section class="view" id="view-not-implemented" aria-labelledby="notImplementedTitle" hidden>
+        <div class="page-heading"><div><p class="eyebrow" id="notImplementedWorkspace">WORKSPACE</p><h1 id="notImplementedTitle">Not implemented</h1></div></div>
+        <div class="notice notice-warning" role="status">This destination is listed for navigation clarity only. It has no implemented page or backend integration yet.</div>
+        <section class="panel trading-panel trading-limitations"><h2>Unavailable in this build</h2><p>No data or controls are presented here. Existing backend state, authentication, and service behavior are unchanged.</p></section>
+      </section>
+
+      <section class="view" id="view-omega" aria-labelledby="omegaTitle" hidden>
+        <div class="page-heading"><div><p class="eyebrow">OMEGA-REPORTED SYSTEM STATE</p><h1 id="omegaTitle">OMEGA Overview</h1></div><span id="omegaReportedHealth" class="state-pill state-unknown">Unavailable</span></div>
+        <div id="omegaAccessNotice" class="notice notice-warning" role="status">OMEGA state is unavailable until an authenticated runtime snapshot is received.</div>
+        <div class="summary-grid">
+          <article class="panel summary-card"><p class="eyebrow">OMEGA STATUS</p><strong id="omegaStatusSummary" class="summary-value">UNKNOWN</strong><p id="omegaStatusDetail" class="muted">No OMEGA status report received.</p></article>
+          <article class="panel summary-card"><p class="eyebrow">OMEGA MODEL REPORT</p><strong id="omegaModelSummary" class="summary-value">UNKNOWN</strong><p id="omegaModelDetail" class="muted">No model/provider inventory received.</p></article>
+          <article class="panel summary-card"><p class="eyebrow">EVIDENCE LEDGER</p><strong id="omegaEvidenceCount" class="summary-value">UNKNOWN</strong><p id="omegaEvidenceDetail" class="muted">No evidence ledger report received.</p></article>
+          <article class="panel summary-card"><p class="eyebrow">LAST OMEGA MEASUREMENT</p><strong id="omegaMeasuredAt" class="summary-value">UNKNOWN</strong><p id="omegaMeasurementDetail" class="muted">No measurement timestamp received.</p></article>
+        </div>
+        <div class="overview-columns">
+          <section class="panel trading-panel"><div class="panel-heading"><div><p class="eyebrow">OMEGA CLI STATUS</p><h2>Reported system status</h2></div></div><pre id="omegaStatusData" class="integration-json">Unavailable: no authenticated OMEGA snapshot received.</pre></section>
+          <section class="panel trading-panel"><div class="panel-heading"><div><p class="eyebrow">OMEGA CLI HEALTH</p><h2>Reported health</h2></div></div><pre id="omegaHealthData" class="integration-json">Unavailable: no authenticated OMEGA snapshot received.</pre></section>
+        </div>
+        <p class="source-note">OMEGA application health is distinct from the ULTRON↔OMEGA integration link shown in its own section.</p>
+      </section>
+
+      <section class="view" id="view-omega-intelligence" aria-labelledby="omegaIntelligenceTitle" hidden>
+        <div class="page-heading"><div><p class="eyebrow">OMEGA ENVIRONMENT PROFILE</p><h1 id="omegaIntelligenceTitle">Intelligence &amp; Learning</h1></div><span id="omegaEnvironmentState" class="state-pill state-unknown">Unavailable</span></div>
+        <div class="notice" role="note">These are fields returned by OMEGA's read-only environment/profile query and may be last-known when the integration is degraded. A configured or listed model is not evidence of a loaded model, training activity, or learning progress.</div>
+        <section class="panel trading-panel"><div class="panel-heading"><div><p class="eyebrow">MODEL PROVIDER</p><h2>Reported model inventory</h2></div></div><pre id="omegaModelData" class="integration-json">Unavailable: no authenticated OMEGA snapshot received.</pre></section>
+        <section class="panel trading-panel"><div class="panel-heading"><div><p class="eyebrow">ENVIRONMENT</p><h2>Read-only profile</h2></div></div><pre id="omegaEnvironmentData" class="integration-json">Unavailable: no authenticated OMEGA snapshot received.</pre></section>
+        <section class="panel trading-panel"><div class="panel-heading"><div><p class="eyebrow">OMEGA CAPABILITY REGISTRY</p><h2>Reported capabilities</h2></div><span id="omegaCapabilityCount" class="state-pill state-unknown">Unavailable</span></div><p id="omegaCapabilityNotice" class="source-note">No capability-registry snapshot received.</p><div id="omegaCapabilitiesList" class="trading-record-list"><p class="empty-state">No authenticated capability snapshot received.</p></div></section>
+        <section class="panel trading-panel"><div class="panel-heading"><div><p class="eyebrow">OMEGA CLI-REPORTED ACTIVITY</p><h2>Internal communication trace</h2></div></div><p class="source-note">This trace is returned by OMEGA's state API and is distinct from gateway-to-service HTTP exchanges.</p><pre id="omegaCliTrace" class="integration-json">Unavailable: no authenticated OMEGA communication trace received.</pre></section>
+      </section>
+
+      <section class="view" id="view-omega-evidence" aria-labelledby="omegaEvidenceTitle" hidden>
+        <div class="page-heading"><div><p class="eyebrow">OMEGA EVIDENCE LEDGER</p><h1 id="omegaEvidenceTitle">Improvement Evidence</h1></div><span id="omegaEvidenceState" class="state-pill state-unknown">Unavailable</span></div>
+        <div class="notice" role="note">The gateway's read-only research query returns OMEGA's evidence ledger and may show last-known data when the integration is degraded. This is not a proposal lifecycle, approval queue, or permission to apply changes.</div>
+        <p id="omegaEvidenceSummary" class="source-note">No evidence ledger snapshot received.</p>
+        <section class="panel trading-panel"><div id="omegaEvidenceList" class="trading-record-list"><p class="empty-state">No authenticated OMEGA evidence snapshot received.</p></div></section>
+      </section>
+
+      <section class="view" id="view-omega-diagnostics" aria-labelledby="omegaDiagnosticsTitle" hidden>
+        <div class="page-heading"><div><p class="eyebrow">OMEGA-SOURCED DIAGNOSTICS</p><h1 id="omegaDiagnosticsTitle">OMEGA Diagnostics</h1></div><span id="omegaDiagnosticsState" class="state-pill state-unknown">Unavailable</span></div>
+        <div class="notice" role="note">Health, status, environment, evidence, and database-anchor fields below are delivered by OMEGA's authenticated state API and may be last-known when the integration is degraded. This console does not open or query OMEGA's database.</div>
+        <dl id="omegaFacts" class="fact-list panel trading-panel"><div><dt>Status</dt><dd>Unavailable</dd></div></dl>
+        <section class="panel trading-panel"><div class="panel-heading"><div><p class="eyebrow">DATABASE ANCHOR</p><h2>OMEGA-reported metadata</h2></div></div><pre id="omegaDatabaseAnchor" class="integration-json">Unavailable: no authenticated OMEGA snapshot received.</pre></section>
+      </section>
+
+      <section class="view" id="view-omega-link" aria-labelledby="omegaLinkTitle" hidden>
+        <div class="page-heading"><div><p class="eyebrow">ULTRON GATEWAY ↔ OMEGA SERVICE</p><h1 id="omegaLinkTitle">Integration Link</h1></div><span id="omegaLinkState" class="state-pill state-unknown">Unknown</span></div>
+        <div class="notice" role="note">Connection and authentication describe the gateway's request to OMEGA. They are not OMEGA's internal health state. This view reports the last observed integration result; it does not probe services from the browser.</div>
+        <section class="panel trading-panel"><dl id="omegaIntegrationFacts" class="fact-list"><div><dt>Status</dt><dd>Unavailable</dd></div></dl></section>
+        <section class="panel trading-panel"><div class="panel-heading"><div><p class="eyebrow">LATEST GATEWAY ATTEMPT</p><h2>Integration failure detail</h2></div></div><pre id="omegaIntegrationFailure" class="integration-json">No integration attempt reported.</pre></section>
+      </section>
+
+      <section class="view" id="view-omega-exchanges" aria-labelledby="omegaExchangesTitle" hidden>
+        <div class="page-heading"><div><p class="eyebrow">REPORTED REQUEST / RESPONSE TRACE</p><h1 id="omegaExchangesTitle">Integration Exchanges</h1></div><span id="omegaExchangeCount" class="state-pill state-unknown">Unavailable</span></div>
+        <div class="notice" role="note">These bounded records describe actual ULTRON gateway HTTP requests to the OMEGA integration service. They contain no credentials or response bodies, are not a durable audit log, and do not establish synchronization or bidirectional connectivity.</div>
+        <section class="panel trading-panel"><div id="omegaExchangeList" class="trading-record-list"><p class="empty-state">No authenticated OMEGA integration trace received.</p></div></section>
+      </section>
+
+      <section class="view" id="view-agents" aria-labelledby="agentsTitle" hidden>
+        <div class="page-heading"><div><p class="eyebrow">REGISTERED AGENTS</p><h1 id="agentsTitle">Agents</h1></div><span id="agentPageCount" class="state-pill state-unknown">Unavailable</span></div>
+        <div class="notice" role="note">The runtime publishes registration names and generic roles only. Registration does not indicate agent health, readiness, or available capabilities.</div>
+        <section class="panel"><div id="agentList" class="inventory-list"><p class="empty-state">No agent snapshot received.</p></div></section>
+      </section>
+
+      <section class="view" id="view-activity" aria-labelledby="activityTitle" hidden>
+        <div class="page-heading"><div><p class="eyebrow">RUNTIME EVENT CHANNEL</p><h1 id="activityTitle">Activity</h1></div><span id="eventCount" class="state-pill state-unknown">Unavailable</span></div>
+        <div class="notice" role="note">Only events emitted by the connected runtime appear here. No client-generated activity is added.</div>
+        <div class="event-filters" role="search" aria-label="Filter runtime events">
+          <label>Search events<input id="eventSearch" type="search" autocomplete="off" placeholder="Search event ID, summary, source…"></label>
+          <label>Severity<select id="eventSeverity"><option value="">All severities</option></select></label>
+          <label>Source<select id="eventSource"><option value="">All sources</option></select></label>
+          <label>Event type<select id="eventType"><option value="">All types</option></select></label>
+          <label>Time range<select id="eventTimeRange"><option value="">Any time</option><option value="1h">Last hour</option><option value="24h">Last 24 hours</option><option value="7d">Last 7 days</option></select></label>
+          <button id="resetEventFilters" class="button button-quiet" type="button">Clear filters</button>
+        </div>
+        <p id="eventFilterSummary" class="source-note" aria-live="polite">Event filters are available when a runtime event snapshot arrives.</p>
+        <section class="panel"><ol id="activityEvents" class="event-list event-list-full"><li class="empty-state">No event data received.</li></ol></section>
+      </section>
+
+      <section class="view" id="view-operations" aria-labelledby="operationsTitle" hidden>
+        <div class="page-heading"><div><p class="eyebrow">SERVER-RECORDED LIFECYCLE</p><h1 id="operationsTitle">Operations</h1></div><span id="operationCount" class="state-pill state-unknown">Unavailable</span></div>
+        <div class="notice notice-warning" role="note">This view does not submit or execute commands. Approval buttons appear only for backend-proposed operations and use the existing server-side authorization gate.</div>
+        <p id="operationFeedback" class="notice" role="status" hidden></p>
+        <section class="panel"><div id="operationsList" class="operation-list"><p class="empty-state">No operation data received.</p></div></section>
+        <section class="panel operation-history-panel">
+          <div class="panel-heading"><div><p class="eyebrow">PERSISTED LIFECYCLE RECORDS</p><h2>Operation history</h2></div><span id="operationHistoryCount" class="state-pill state-unknown">Unavailable</span></div>
+          <p id="operationHistoryNotice" class="source-note">History is unavailable until an operation snapshot is received.</p>
+          <ol id="operationHistoryList" class="operation-history-list"><li class="empty-state">No operation snapshot received.</li></ol>
+        </section>
+      </section>
+
+      <section class="view" id="view-telemetry" aria-labelledby="telemetryTitle" hidden>
+        <div class="page-heading"><div><p class="eyebrow">BACKEND-SOURCED SNAPSHOTS</p><h1 id="telemetryTitle">Telemetry</h1></div></div>
+        <div class="notice" role="note">Snapshots are shown only after receipt from the runtime WebSocket. Missing channels are reported as unavailable, not synthesized.</div>
+        <div id="telemetryList" class="telemetry-list"></div>
+      </section>
+
+      <section class="view" id="view-voice" aria-labelledby="voiceTitle" hidden>
+        <div class="page-heading"><div><p class="eyebrow">LOCAL SPEECH SERVICE</p><h1 id="voiceTitle">Voice</h1></div><span id="voiceServiceState" class="state-pill state-unknown">Unknown</span></div>
+        <div class="notice" role="note">Service health and the active engine are reported by the voice API. A healthy endpoint does not prove that audio playback works. No voice identity or production configuration is changed here.</div>
+        <section class="panel voice-panel">
+          <div><h2>Service and playback</h2><p id="voiceStatus" class="muted" role="status">Checking configured voice service…</p><p id="voiceCatalog" class="muted">Engine and style catalog unavailable until checked.</p></div>
+          <div class="voice-controls">
+            <label class="check-label"><input id="voiceEnabled" type="checkbox"> Enable voice output</label>
+            <label class="check-label"><input id="voiceAuto" type="checkbox" disabled> Automatically speak chat responses</label>
+            <button id="voiceHealthButton" type="button" class="button button-quiet">Check service</button>
+            <button id="stopSpeaking" type="button" class="button button-quiet" disabled>Stop speech</button>
+          </div>
+        </section>
+        <section class="panel voice-preview">
+          <label for="voiceTestText">Text to synthesize</label>
+          <textarea id="voiceTestText" rows="3" maxlength="4000">The system is ready to receive your instruction.</textarea>
+          <p class="muted">Uses the existing voice API and its normal delivery style. This generates audio only when you choose to play it.</p>
+          <button id="voiceTestButton" type="button" class="button button-primary">Generate and play</button>
+        </section>
+      </section>
+
+      <section class="view" id="view-tools" aria-labelledby="toolsTitle" hidden>
+        <div class="page-heading"><div><p class="eyebrow">RUNTIME SKILL REGISTRY</p><h1 id="toolsTitle">Tools &amp; Skills</h1></div><span id="skillCount" class="state-pill state-unknown">Unavailable</span></div>
+        <div class="notice" role="note">This is a read-only registry snapshot. Listed actions are not invoked here; the gateway supports only separately mapped, approval-gated command verbs. The catalog does not publish per-action permissions, parameter schemas, or execution history.</div>
+        <section class="panel"><div id="skillList" class="inventory-list"><p class="empty-state">No host capability snapshot received.</p></div></section>
+      </section>
+
+      <section class="view" id="view-diagnostics" aria-labelledby="diagnosticsTitle" hidden>
+        <div class="page-heading"><div><p class="eyebrow">EVIDENCE-BACKED LOCAL INVENTORY</p><h1 id="diagnosticsTitle">System Intelligence</h1></div><div class="cre-heading-actions"><button id="systemRefreshButton" class="button button-quiet" type="button">Refresh inventory</button><button id="restartAuthButton" class="button button-quiet" type="button" disabled>Restart auth helper</button></div></div>
+        <p id="systemInventoryStatus" class="notice notice-warning" role="status">No authenticated system inventory has been received.</p>
+        <p id="systemInventoryTimestamp" class="source-note">Current system health is unknown.</p>
+        <section class="panel trading-panel"><div class="panel-heading"><div><p class="eyebrow">SYSTEM OVERVIEW</p><h2>Host observations</h2></div></div><div id="systemObservations" class="diagnostic-list"><p class="empty-state">No system observations received.</p></div></section>
+        <section class="panel trading-panel"><div class="panel-heading"><div><p class="eyebrow">SERVICE AND DEPENDENCY MAP</p><h2>Observed services</h2></div></div><div id="systemServices" class="trading-record-list"><p class="empty-state">No manager service records received.</p></div><div id="systemDependencies" class="trading-record-list"><p class="empty-state">No dependency observations received.</p></div></section>
+        <section class="panel trading-panel"><div class="panel-heading"><div><p class="eyebrow">AVAILABLE ACTIONS</p><h2>Operator control</h2></div></div><p id="systemActionStatus" class="muted">Authorization and manager availability are unknown.</p><p id="systemHandoffStatus" class="muted">Manager handoff status is unknown.</p><p id="systemActionResult" class="notice" role="status">No operation has been requested.</p></section>
+        <section class="panel trading-panel"><div class="panel-heading"><div><p class="eyebrow">OPERATIONAL EVENTS</p><h2>Lifecycle history</h2></div></div><div id="systemOperationalEvents" class="trading-record-list"><p class="empty-state">No service-manager transactions recorded.</p></div></section>
+        <section class="panel trading-panel"><div class="panel-heading"><div><p class="eyebrow">DIAGNOSTICS AND EVIDENCE</p><h2>Observed symptoms and hypotheses</h2></div></div><div id="systemDiagnosticRecords" class="trading-record-list"><p class="empty-state">No diagnostic records received.</p></div></section>
+        <div class="diagnostic-list" id="diagnosticList"></div>
+        <section class="panel diagnostics-errors">
+          <div class="panel-heading"><div><p class="eyebrow">LOCAL VALIDATION</p><h2>Contract issues</h2></div></div>
+          <p class="muted">These are browser-side schema validation errors, not backend log records.</p>
+          <ol id="integrityIssues" class="event-list"><li class="empty-state">No browser contract issues observed.</li></ol>
+        </section>
+      </section>
+    </main>
+
+    <aside id="inspector" class="inspector" aria-labelledby="inspectorTitle" hidden>
+      <div class="inspector-heading"><div><p class="eyebrow">LIVE SNAPSHOT STATUS</p><h2 id="inspectorTitle">Subsystem status</h2></div><button id="closeInspector" class="icon-button" type="button" aria-label="Close subsystem status">×</button></div>
+      <p class="muted">Each status reflects a channel received from the WebSocket. This panel does not probe services independently.</p>
+      <ul id="channelStatus" class="channel-list"></ul>
+    </aside>
+  </div>
+
+  <div id="inspectorBackdrop" class="backdrop" hidden></div>
+
+  <dialog id="operatorAuthDialog" aria-labelledby="operatorAuthTitle">
+    <form id="operatorAuthForm">
+      <p class="eyebrow">LOCAL BACKEND SESSION</p>
+      <h2 id="operatorAuthTitle">Unlock ULTRON</h2>
+      <p id="operatorAuthPrompt" class="muted">Enter your local unlock passphrase. It is sent only to the loopback helper; the gateway token is never sent to this page.</p>
+      <label id="operatorAuthLabel" for="operatorAuthToken">Unlock passphrase</label>
+      <input id="operatorAuthToken" name="credential" type="password" autocomplete="current-password" required>
+      <div class="dialog-actions"><a id="operatorAuthModeLink" href="?auth=token">Use gateway token instead</a><button id="operatorAuthCancel" class="button button-quiet" type="button">Cancel</button><button class="button button-primary" type="submit">Unlock</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="approvalDialog" aria-labelledby="approvalTitle">
+    <form id="approvalForm">
+      <p class="eyebrow">EXPLICIT OPERATOR APPROVAL</p>
+      <h2 id="approvalTitle">Review operation</h2>
+      <p class="notice notice-critical">Approving may execute a consequential action. Review the full proposal before confirming.</p>
+      <pre id="approvalDetails" class="approval-details"></pre>
+      <p id="approvalError" class="error-text" role="status"></p>
+      <div class="dialog-actions"><button id="approvalCancel" class="button button-quiet" type="button">Cancel</button><button id="approvalConfirm" class="button button-danger" type="submit">Approve operation</button></div>
+    </form>
+  </dialog>
+
+  <script src="./contracts/contracts.js"></script>
+  <script src="./services/bridge.js"></script>
+  <script src="./services/providers/websocketProvider.js?v=20261102-auth-local-transport-1"></script>
+  <script type="module" src="./operator-console.js?v=20261102-auth-local-transport-1"></script>
+</body>
+</html>

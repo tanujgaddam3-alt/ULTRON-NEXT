@@ -1,0 +1,322 @@
+{
+  "schema_version": 1,
+  "title": "ULTRON System Intelligence Mission 1",
+  "investigation_timestamp": "2026-10-27T21:53:46+05:30",
+  "report_status": "VERIFIED_READ_ONLY_INVESTIGATION",
+  "overall_status": "PARTIALLY_VERIFIED",
+  "deployment_decision": "NO-GO",
+  "scope": {
+    "mode": "read_only_source_review_focused_tests_passive_observation",
+    "application_code_changed": false,
+    "runtime_state_changed": false,
+    "services_signalled_or_restarted": false,
+    "credentials_or_private_browser_state_accessed": false,
+    "live_database_accessed": false,
+    "omega_contacted_or_modified": false,
+    "authenticated_live_requests_made": false
+  },
+  "runtime_observations": {
+    "observed_at": "2026-10-27T21:53:46+05:30",
+    "method": [
+      "ps -p 6943,6970,7065,7071,7075 -o pid,ppid,lstart,comm",
+      "ss -ltn with filters for ports 8000, 8080, 8081, 8765"
+    ],
+    "historical_pids_found": [],
+    "matching_listeners": [],
+    "classification": "UNVERIFIED",
+    "interpretation": "The five historically reported PIDs and previously reported listeners were not present in the passive observations. This does not identify a replacement runtime or prove that the host/application is down.",
+    "browser_session": "UNVERIFIED",
+    "authenticated_snapshot": "UNVERIFIED",
+    "historical_operator_evidence": {
+      "pids": [6943, 6970, 7065, 7071, 7075],
+      "ports": [8000, 8080, 8081, 8765],
+      "reported_runtime_state": "IDLE",
+      "reported_active_operations": 0,
+      "reported_registered_agents": 4,
+      "reported_omega_health": "UNKNOWN",
+      "reported_omega_link": "NOT_CONFIGURED",
+      "reported_heartbeat": {
+        "running": false,
+        "cycle_count": 0
+      },
+      "classification": "STALE",
+      "evidence_origin": "Prior operator-provided observations; not revalidated as current."
+    }
+  },
+  "architecture": {
+    "flow": [
+      "OS/process/world/runtime state",
+      "SystemIntelligence collector or InterfaceGateway snapshot builder",
+      "Authenticated WebSocket request/result or subscribed channel",
+      "WebSocketUltronProvider",
+      "Bridge state",
+      "interface/operator-console.js rendering"
+    ],
+    "default_websocket_endpoint": "ws://127.0.0.1:8081/ultron/stream",
+    "authentication": "System Intelligence inventory requires an authenticated WebSocket identity matching the configured operator principal.",
+    "provenance_caveat": "LIVE means the subscription was acknowledged; it is not a complete application-health or per-service-readiness assertion."
+  },
+  "field_matrix": [
+    {
+      "field": "Overview host CPU and memory utilization",
+      "frontend": "interface/operator-console.js:335-430",
+      "backend": [
+        "ultron/application/runtime/interface_gateway.py:2085-2100",
+        "ultron/world/observers/system.py:1-17",
+        "ultron/world/state.py:20-36"
+      ],
+      "contract": "world channel; validateWorld checks outer structure in interface/contracts/contracts.js:549-585",
+      "value_class": "Direct local host observations",
+      "timestamp_semantics": "world.observedAt comes from world state last_updated; browser channel receipt time is separately kept by recordChannel.",
+      "staleness_and_failure": "Failed world snapshots return explicit unavailable fields/error; overview marks retained values stale when bridge provenance is not LIVE.",
+      "status": "PARTIALLY_VERIFIED",
+      "tests": [
+        "interface/tests/layout.test.mjs: diagnostics does not infer process health from device snapshot (structural UI assertion)"
+      ]
+    },
+    {
+      "field": "System Intelligence CPU and memory observations",
+      "frontend": "interface/operator-console.js:184-255",
+      "backend": "ultron/application/runtime/system_intelligence.py:58-75,280-330",
+      "contract": "SYSTEM_INTELLIGENCE_RESULT; provider only requires payload.observations to be an array at interface/services/providers/websocketProvider.js:463-480",
+      "value_class": "CPU logical processor count/load average and memory bytes from /proc/meminfo; no synthetic reading identified",
+      "timestamp_semantics": "Collector observation time generated when each observation is assembled; inventory generatedAt is collector time.",
+      "staleness_and_failure": "Null/unavailable values are represented explicitly; inventory state becomes stale on request failure/disconnection, but no age threshold is enforced while connected.",
+      "status": "VERIFIED",
+      "tests": [
+        "tests/runtime/test_system_intelligence.py:test_inventory_uses_measured_sources_and_marks_unavailable_hardware (currently blocked at module collection)"
+      ]
+    },
+    {
+      "field": "Process identity and service listener status",
+      "frontend": "interface/operator-console.js:184-255",
+      "backend": "ultron/application/runtime/system_intelligence.py:37-55,77-104,227-278",
+      "contract": "Inventory services entries with processStatus, listener, readiness, source, and observedAt",
+      "value_class": "Direct /proc identity and listener observations cross-checked against protected state records",
+      "timestamp_semantics": "Service observedAt is collector time.",
+      "staleness_and_failure": "PID/start tick, executable, cwd, process group and marker checks reject stale/ambiguous process records. Listener presence yields readiness UNKNOWN, not healthy.",
+      "status": "VERIFIED",
+      "tests": [
+        "tests/runtime/test_system_intelligence.py:test_stale_manager_identity_is_diagnostic_and_later_becomes_stale (currently blocked at module collection)",
+        "tests/runtime/test_system_intelligence.py:test_process_observations_do_not_publish_raw_command_arguments (currently blocked at module collection)"
+      ]
+    },
+    {
+      "field": "Top-level System Intelligence inventory status",
+      "frontend": "interface/operator-console.js:184-197",
+      "backend": "ultron/application/runtime/system_intelligence.py:415-425",
+      "contract": "inventory.status rendered in systemInventoryStatus",
+      "value_class": "Derived from host observations only in current source",
+      "timestamp_semantics": "Inventory generatedAt is collector time.",
+      "staleness_and_failure": "Service processStatus/readiness and manager ownership do not participate in the current top-level status predicate.",
+      "status": "VERIFIED",
+      "finding": "Confirmed false-green possibility: stale/unavailable services can coexist with top-level VERIFIED when host observations succeed."
+    },
+    {
+      "field": "Runtime state and cycle count",
+      "frontend": "interface/operator-console.js:335-360",
+      "backend": "ultron/application/runtime/interface_gateway.py:2040-2083",
+      "contract": "cognitiveState channel; validateCognitiveState in interface/contracts/contracts.js:25-42",
+      "value_class": "Derived from runtime.state.running and runtime.state.cycle_count",
+      "timestamp_semantics": "No source observation timestamp is included in cognitiveState payload.",
+      "staleness_and_failure": "No snapshot renders UNAVAILABLE; transport provenance changes separately.",
+      "status": "PARTIALLY_VERIFIED"
+    },
+    {
+      "field": "Active operation count",
+      "frontend": "interface/operator-console.js:335-375",
+      "backend": "ultron/application/runtime/interface_gateway.py:3090-3107",
+      "contract": "command.activeOperations",
+      "value_class": "Gateway operation deque filtered by lifecycle state",
+      "timestamp_semantics": "Operation records have created/updated timestamps; count itself is a channel projection.",
+      "staleness_and_failure": "Missing channel is UNKNOWN; no current live channel observed.",
+      "status": "PARTIALLY_VERIFIED"
+    },
+    {
+      "field": "Registered agents and agent health",
+      "frontend": "interface/operator-console.js:335-365",
+      "backend": "ultron/application/runtime/interface_gateway.py:2040-2083",
+      "contract": "cognitiveState.agents array or null, with agentsError",
+      "value_class": "Agent orchestrator registry available() records; no per-agent health value in this payload",
+      "timestamp_semantics": "No source timestamp in cognitiveState payload.",
+      "staleness_and_failure": "Registry exception results in null agents and an error; count is not interpreted as agent health.",
+      "status": "PARTIALLY_VERIFIED"
+    },
+    {
+      "field": "Gateway connection and heartbeat",
+      "frontend": "interface/operator-console.js:335-350,1613-1660",
+      "backend": "ultron/application/runtime/interface_gateway.py:356-413",
+      "contract": "SUBSCRIBE_ACK for transport provenance; runtimeEvents heartbeat for runtime running/cycleCount/uptime",
+      "value_class": "Real gateway transport plus gateway read of runtime state",
+      "timestamp_semantics": "Heartbeat at is gateway emission time; recordChannel receipt time is browser time.",
+      "staleness_and_failure": "Provider sets OFFLINE on error/close and retries after 5 seconds; heartbeats do not prove full service readiness.",
+      "status": "PARTIALLY_VERIFIED"
+    },
+    {
+      "field": "Recent runtime events",
+      "frontend": "interface/services/runtimeEvents.js and interface/operator-console.js",
+      "backend": "ultron/application/runtime/interface_gateway.py:356-413,596-606,2034-2038",
+      "contract": "runtimeEvents array validated by validateRuntimeEventStream",
+      "value_class": "Gateway runtime/event-bus records in bounded deque",
+      "timestamp_semantics": "Event at/timestamp is backend/gateway event time; receivedAt(channel) is browser receipt time.",
+      "staleness_and_failure": "Undated events are excluded from time filtering; connection loss is shown through provenance.",
+      "status": "VERIFIED",
+      "tests": [
+        "interface/tests/runtimeEvents.test.mjs: event filters and backend/gateway time behavior (passed)"
+      ]
+    },
+    {
+      "field": "OMEGA health and ULTRON link",
+      "frontend": "interface/operator-console.js:335-400",
+      "backend": "ultron/application/runtime/interface_gateway.py:431-590",
+      "contract": "omega channel",
+      "value_class": "Configured integration result when present; otherwise unavailable/unknown",
+      "timestamp_semantics": "Backend integration timestamps where reported; not re-observed in this mission.",
+      "staleness_and_failure": "No OMEGA request was made; current state remains unverified.",
+      "status": "UNVERIFIED"
+    },
+    {
+      "field": "System diagnostics and fixed helper action",
+      "frontend": "interface/operator-console.js:1531-1605,2073-2098",
+      "backend": "ultron/application/runtime/interface_gateway.py:854-912,914-970; ultron/application/runtime/system_intelligence.py:227-278,458-536",
+      "contract": "SYSTEM_INTELLIGENCE_REQUEST and SYSTEM_RESTART_AUTH_REQUEST; fixed operation id, authenticated principal and manager control socket",
+      "value_class": "Diagnostic evidence and fixed, manager-owned helper action; no LLM shell string accepted",
+      "timestamp_semantics": "Diagnostic observedAt is collector time; audit/control events come from manager records.",
+      "staleness_and_failure": "Action is only enabled when authenticated and inventory/action are available; failures are returned and inventory refresh follows success.",
+      "status": "VERIFIED",
+      "live_action_executed": false
+    },
+    {
+      "field": "Manager handoff status",
+      "frontend": "interface/operator-console.js:292-300",
+      "backend": "Expected in docs/RUNTIME_OPERATIONS.md:257-260 and tests/runtime/test_system_intelligence.py:7,89-198; absent from system_intelligence.py",
+      "contract": "UI expects managerHandoff; runtime tests import _manager_handoff_status",
+      "value_class": "Expected contract unavailable in current collector source",
+      "timestamp_semantics": "No result available.",
+      "staleness_and_failure": "UI falls back to manager handoff unknown.",
+      "status": "UNAVAILABLE",
+      "root_cause": "Missing _manager_handoff_status definition and missing managerHandoff property in collect() response."
+    }
+  ],
+  "confirmed_findings": [
+    {
+      "id": "SI-1",
+      "status": "VERIFIED",
+      "title": "Top-level inventory can be false-green",
+      "root_cause": "system_intelligence.py:415-425 computes status only from observations and excludes services, readiness, manager ownership and diagnostics.",
+      "impact": "Dashboard can show inventory VERIFIED while service identities are STALE/UNKNOWN or readiness is unavailable/unknown."
+    },
+    {
+      "id": "SI-2",
+      "status": "VERIFIED",
+      "title": "Manager handoff contract drift blocks collector tests",
+      "root_cause": "The test imports _manager_handoff_status and expects managerHandoff, while the implementation defines neither; UI and operations guide also expect a handoff result.",
+      "impact": "Focused collector tests fail at collection and the UI cannot display structured manager handoff evidence."
+    },
+    {
+      "id": "SI-3",
+      "status": "VERIFIED",
+      "title": "System inventory lacks connected-session age expiry",
+      "root_cause": "Provider marks stale for pending request/error/disconnect, and UI displays generatedAt but does not derive freshness while a live connection remains open.",
+      "impact": "An old successful snapshot may remain AVAILABLE until explicit refresh or disconnect."
+    },
+    {
+      "id": "SI-4",
+      "status": "VERIFIED",
+      "title": "Transport/heartbeat are not full health checks",
+      "root_cause": "LIVE is set after subscription acknowledgment; heartbeat reports runtime state and gateway uptime, not all service readiness.",
+      "impact": "Must not use connected state or heartbeat alone to claim application health."
+    },
+    {
+      "id": "SI-5",
+      "status": "UNVERIFIED",
+      "title": "Current live runtime/authenticated browser path",
+      "root_cause": "No prior PIDs or port listeners were observed at the recheck time; no replacement runtime identity or authenticated browser result was established.",
+      "impact": "Live dashboard state and current source provenance are unknown."
+    }
+  ],
+  "tests": [
+    {
+      "command": ".venv/bin/python -m pytest -q tests/runtime/test_system_intelligence.py tests/interface/test_interface_gateway_system_intelligence.py",
+      "result": "FAIL_COLLECTION",
+      "exit_code": 2,
+      "details": "ImportError: cannot import name '_manager_handoff_status' from ultron.application.runtime.system_intelligence; no test in the runtime module ran."
+    },
+    {
+      "command": ".venv/bin/python -m pytest -q tests/interface/test_interface_gateway_system_intelligence.py",
+      "result": "PASS",
+      "passed": 2,
+      "failed": 0,
+      "details": "Fake WebSocket tests cover authenticated inventory response, unauthenticated denial, malformed action rejection, and unavailable manager failure response; not live service integration."
+    },
+    {
+      "command": "node --test interface/tests/runtimeEvents.test.mjs interface/tests/layout.test.mjs",
+      "result": "PASS",
+      "passed": 20,
+      "failed": 0,
+      "skipped": 0,
+      "details": "Frontend structural/System Intelligence and runtime-event timestamp/filter assertions; not browser live end-to-end evidence."
+    },
+    {
+      "command": "runTests tool on two Python test paths",
+      "result": "NOT_DISCOVERED",
+      "details": "Tool returned No tests found; counted as neither a pass nor an executed test."
+    }
+  ],
+  "prioritized_fix": {
+    "priority": 1,
+    "status": "PROPOSED_NOT_IMPLEMENTED",
+    "objective": "Complete a truthful, testable System Intelligence inventory aggregate contract.",
+    "scope": [
+      "Compute top-level status from service process identity/readiness and manager-ownership evidence as well as host observations.",
+      "Restore the documented managerHandoff result, or deliberately update UI, tests, and documentation together to one explicit contract.",
+      "Preserve UNKNOWN/UNAVAILABLE distinctions and never treat listener presence as readiness."
+    ],
+    "acceptance_criteria": [
+      "Host observations succeeding while any required service is stale/missing cannot yield overall VERIFIED.",
+      "Ambiguous/missing manager ownership produces an explicit non-eligible state and reason.",
+      "Collector tests import and execute; tests assert the overall status and manager handoff behavior.",
+      "Authenticated gateway and frontend stale/error-state tests continue to pass.",
+      "A connected but aged snapshot has a defined, tested freshness policy distinct from browser receipt time."
+    ],
+    "proposed_regression_tests": [
+      "Create temporary state with valid host facts but stale/missing service identity and assert top-level status is not VERIFIED.",
+      "Create manager fixtures for no owner, multiple owners, and parent mismatch; assert blocked/uncertain result and no state rewrite.",
+      "Assert inventory includes the documented managerHandoff contract.",
+      "Test browser rendering of a stale/expired inventory and timestamp semantics."
+    ],
+    "safety_prerequisites": [
+      "No live service restart or runtime mutation.",
+      "Use only temporary test state and fake WebSockets.",
+      "Keep authentication and fixed manager-owned operation boundary unchanged.",
+      "For any future live verification, first satisfy runtime ownership, release, rollback, backup, restoration, and explicit operator authorization gates."
+    ]
+  },
+  "evidence_paths": [
+    "ultron/application/runtime/system_intelligence.py",
+    "ultron/application/runtime/interface_gateway.py",
+    "ultron/world/observers/system.py",
+    "ultron/world/state.py",
+    "interface/operator-console.js",
+    "interface/services/providers/websocketProvider.js",
+    "interface/contracts/contracts.js",
+    "tests/runtime/test_system_intelligence.py",
+    "tests/interface/test_interface_gateway_system_intelligence.py",
+    "interface/tests/runtimeEvents.test.mjs",
+    "interface/tests/layout.test.mjs",
+    "docs/RUNTIME_OPERATIONS.md"
+  ],
+  "final_disposition": {
+    "what_genuinely_works": [
+      "A source-level authenticated inventory request and fixed helper-action path exist.",
+      "Host/process/listener observations are taken from OS sources and include source/status/time metadata.",
+      "The focused authenticated gateway tests passed (2) and the selected frontend tests passed (20)."
+    ],
+    "system_intelligence_gap": "Top-level status omits service identity/readiness and manager ownership; managerHandoff is expected by UI/tests/docs but absent from collector, causing focused runtime test collection failure.",
+    "highest_value_fix": "Complete the truthful System Intelligence aggregate and handoff contract, with false-green and stale/ambiguous ownership tests.",
+    "safe_implementation_requirements": "Repair test/source contract drift, use temporary fixtures, review exact diff, run focused Python/frontend tests, and do not restart services or bypass ownership/auth gates.",
+    "deployment_decision": "NO-GO",
+    "code_fix_made": false,
+    "live_verification_claimed": false
+  }
+}

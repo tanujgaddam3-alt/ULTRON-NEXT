@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "mission": "ULTRON MISSION 2",
+  "removed_files": [],
+  "removed_files_rationale": "No files were deleted. No Git metadata is available, and dynamic or external consumers were not exhaustively disproven for apparent backup, archive, and legacy files.",
+  "confirmed_active_components": [
+    "ultron/infrastructure/container.py",
+    "ultron/financial/bootstrap.py",
+    "scripts/ultron_service_manager.py",
+    "ultron/application/runtime/service_entrypoint.py",
+    "ultron/application/runtime/local_auth_helper.py",
+    "ultron/application/runtime/interface_gateway.py",
+    "ultron/application/content/service.py",
+    "ultron/application/runtime/system_intelligence.py"
+  ],
+  "confirmed_redundant_implementations": [],
+  "confirmed_dead_code_files": [],
+  "retained_areas_for_review": [
+    {
+      "path": ".backups/",
+      "reason": "Contains historical test/source copies; no Git history or exhaustive external-use proof is available."
+    },
+    {
+      "path": ".ultron_patch_backups/",
+      "reason": "Contains prior source snapshots; retained as recovery evidence and excluded from release archives."
+    },
+    {
+      "path": "ultron/voice/reference_staging/",
+      "reason": "Contains experimental/reference scripts, duplicate data-building code, and nested environments; excluded from core runtime conclusions and release bundles."
+    }
+  ],
+  "retained_for_review": [
+    {
+      "path": "ultron/application/runtime/interface_gateway.py.bak",
+      "reason": "Backup-named source file; no deletion because references, custom loaders, and operator recovery use were not exhaustively ruled out."
+    },
+    {
+      "path": "ultron/application/runtime/runtime.py.backup_live_telemetry",
+      "reason": "Backup-named source file; no deletion because references, custom loaders, and operator recovery use were not exhaustively ruled out."
+    },
+    {
+      "path": "ultron/agents/coding/agent.py.before_final_replacement_20260906_222743",
+      "reason": "Historical source copy; retained because repository history is unavailable and external recovery use is unverified."
+    },
+    {
+      "path": "ultron/agents/coding/agent.py.corrupted_20260906_222619",
+      "reason": "Historical diagnostic copy; retained because repository history is unavailable and external recovery use is unverified."
+    },
+    {
+      "path": "ultron/cognition/inference/generator.py.bak",
+      "reason": "Backup-named source file; no deletion because references, custom loaders, and operator recovery use were not exhaustively ruled out."
+    }
+  ],
+  "unused_function_candidates_not_removed": [
+    "ultron/world/query/engine.py:find_files_by_extension",
+    "ultron/memory/working.py:reset_cycle",
+    "ultron/memory/working.py:get_state",
+    "ultron/world/query/engine.py:find_running_applications",
+    "ultron/world/query/engine.py:has_entity",
+    "ultron/world/query/engine.py:entity_exists",
+    "ultron/voice/dsp.py:_read_wav",
+    "ultron/voice/dsp.py:_write_wav",
+    "ultron/domain/content_intelligence.py:transcript_payload_fingerprint",
+    "ultron/voice/normalize.py:load_config",
+    "ultron/world/query/engine.py:find_project_files",
+    "ultron/voice/dsp.py:_report_justification",
+    "ultron/voice/pipeline.py:available_engines",
+    "ultron/voice/styles.py:describe_available"
+  ],
+  "evidence_limits": [
+    "Workspace has no .git metadata; prior-vs-current ownership of existing modifications cannot be established.",
+    "Static source references and the observed managed service commands were inspected, but arbitrary external scripts, user imports, and runtime plugin loaders cannot be exhaustively excluded.",
+    "No backup-named or legacy files were deleted."
+  ]
+}

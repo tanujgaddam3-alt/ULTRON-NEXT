@@ -1,0 +1,195 @@
+"""XTTS v2 cloning engine (coqui-tts, low-level loader).
+
+Loads ``coqui/XTTS-v2`` once (snapshot_download via Hugging Face Hub on first
+use) and conditions it on an extracted segment of the ULTRON reference
+recording. Inference is CPU-only by design (the deployment machine has no
+discrete GPU); thread count is bounded from config.
+
+The low-level ``Xtts`` API is used instead of ``TTS.api.TTS`` because the
+sugar API's config auto-discovery fails across transformers 4.57+; the
+low-level loader is explicit and version-stable.
+"""
+
+from __future__ import annotations
+
+import os
+import time
+
+from .base import BaseEngine, EngineResult
+
+
+class XtTsEngine(BaseEngine):
+    name = "xtts"
+    is_clone = True
+
+    def __init__(self, config: dict, profile: dict):
+        super().__init__(config, profile)
+        self._model: object | None = None
+        self._xtts_config: object | None = None
+        self._reference: str | None = None
+        self._sample_rate = int(config.get("sample_rate", 24000))
+        self._torch_threads = int(
+            config.get("voice_engine", {}).get("torch_threads", 4)
+        )
+
+    # ------------------------------------------------------------------ #
+    def _resolve_model_dir(self) -> str:
+        explicit = self.config.get("voice_engine", {}).get("model_path")
+        if explicit and os.path.isdir(explicit):
+            return explicit
+        from huggingface_hub import snapshot_download
+
+        os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
+        return snapshot_download(
+            self.config.get("voice_engine", {}).get("model_spec", "coqui/XTTS-v2")
+        )
+
+    def _resolve_reference(self, rel: str) -> str:
+        root = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
+        candidates = [
+            rel,
+            os.path.join(root, rel),
+            os.path.join(root, "voice", rel),
+            os.path.join(os.getcwd(), rel),
+        ]
+        for c in candidates:
+            if os.path.isfile(c):
+                return c
+        return candidates[0]
+
+    # ------------------------------------------------------------------ #
+    def _ensure_ffmpeg_dlls_on_path(self) -> None:
+        """torchcodec's native core links FFmpeg shared DLLs.
+
+        The deployment machine has no ffmpeg on PATH, so we prepend a
+        configured DLL directory (or a detected one) before torchcodec loads.
+        """
+        root = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
+        candidates = []
+        explicit = self.config.get("voice_engine", {}).get("ffmpeg_dll_dir")
+        if explicit:
+            candidates.append(explicit)
+            candidates.append(os.path.join(root, explicit))
+        env = os.environ.get("ULTRON_FFMPEG_DLL_DIR")
+        if env:
+            candidates.append(env)
+        for d in candidates:
+            if d and os.path.isdir(d) and any(
+                f.startswith(("avcodec-", "avformat-")) for f in os.listdir(d)
+            ):
+                self._prepend_dll_dir(d)
+                return
+
+    def _prepend_dll_dir(self, d: str) -> None:
+        try:
+            os.add_dll_directory(d)  # type: ignore[attr-defined]
+        except Exception:
+            pass
+        path = os.environ.get("PATH", "")
+        if d not in path.split(os.pathsep):
+            os.environ["PATH"] = d + os.pathsep + path
+
+    # ------------------------------------------------------------------ #
+    def prepare(self) -> None:
+        import os as _os
+
+        self._ensure_ffmpeg_dlls_on_path()
+
+        _os.environ.setdefault("TORCH_NUM_THREADS", str(self._torch_threads))
+        _os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+
+        import torch  # deferred: only the clone engine needs it
+
+        threads = max(1, min(self._torch_threads, 16))
+        torch.set_num_threads(threads)
+        torch.set_num_interop_threads(min(threads, 4))
+
+        from TTS.tts.configs.xtts_config import XttsConfig
+        from TTS.tts.models.xtts import Xtts
+
+        model_dir = self._resolve_model_dir()
+        config_path = os.path.join(model_dir, "config.json")
+        if not os.path.isfile(config_path):
+            raise FileNotFoundError(f"XTTS config not found: {config_path}")
+
+        cfg = XttsConfig()
+        cfg.load_json(config_path)
+
+        model = Xtts.init_from_config(cfg)
+        model.load_checkpoint(cfg, checkpoint_dir=model_dir, eval=True)
+        device = self.config.get("voice_engine", {}).get("device", "cpu")
+        model = model.to(device)
+        model.eval()
+        self._model = model
+        self._xtts_config = cfg
+
+        ref_rel = self.config.get("voice_engine", {}).get(
+            "reference_audio", "assets/reference/ultron_reference.wav"
+        )
+        self._reference = self._resolve_reference(ref_rel)
+        if not self._reference or not os.path.isfile(self._reference):
+            raise FileNotFoundError(
+                f"Clone reference audio not found: {self._reference!r}"
+            )
+        self._ready = True
+
+    # ------------------------------------------------------------------ #
+    def synthesize(
+        self, text: str, style_params: dict, output_path: str
+    ) -> EngineResult:
+        if not self._ready or self._model is None or self._xtts_config is None:
+            raise RuntimeError("XTTS engine not prepared; call prepare() first.")
+
+        import torch  # noqa: PLC0415
+
+        rate = float(style_params.get("rate", 1.0))
+        start = time.perf_counter()
+
+        with torch.no_grad():
+            out = self._model.synthesize(
+                text=text,
+                config=self._xtts_config,
+                speaker_wav=self._reference,
+                language="en",
+temperature=0.48,
+                length_penalty=1.0,
+                repetition_penalty=9.0,
+                top_k=18,
+                top_p=0.8,
+                speed=rate,
+            )
+        elapsed = time.perf_counter() - start
+
+        wav = out.get("wav")
+        sr = int(out.get("sample_rate", self._sample_rate))
+        if wav is None:
+            raise RuntimeError("XTTS synthesize returned no audio.")
+
+        import torch as _t
+
+        if hasattr(wav, "cpu"):
+            wav = wav.cpu().numpy()
+        if wav.ndim > 1:
+            wav = wav[:, 0]
+        wav = wav.astype("float64")
+
+        import soundfile as sf
+
+        sf.write(output_path, wav, min(sr, self._sample_rate), subtype="PCM_16")
+
+        return EngineResult(
+            engine=self.name,
+            is_clone=True,
+            output_path=output_path,
+            sample_rate=self._sample_rate,
+            elapsed_synth_s=round(elapsed, 3),
+            text=text,
+            notes=[
+                "XTTS v2 (coqui/XTTS-v2) conditioned on the 30 s ULTRON reference segment",
+                "temperature=0.48, top_k=18, top_p=0.8 (controlled for reproducibility)",
+            ],
+        )

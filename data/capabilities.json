@@ -1,0 +1,38 @@
+{
+    "voice": {
+        "name": "voice",
+        "module": "ultron.skills.voice.skill",
+        "description": "Add or improve voice capability.",
+        "status": "active"
+    },
+    "vision": {
+        "name": "vision",
+        "module": "ultron.skills.vision.skill",
+        "description": "Add or improve vision capability.",
+        "status": "active"
+    },
+    "market_data": {
+        "name": "market_data",
+        "module": "ultron.skills.market_data.skill",
+        "description": "Add or improve market_data capability.",
+        "status": "active"
+    },
+    "financial_analysis": {
+        "name": "financial_analysis",
+        "module": "ultron.skills.financial_analysis.skill",
+        "description": "Add or improve financial_analysis capability.",
+        "status": "active"
+    },
+    "risk_management": {
+        "name": "risk_management",
+        "module": "ultron.skills.risk_management.skill",
+        "description": "Add or improve risk_management capability.",
+        "status": "active"
+    },
+    "backtesting": {
+        "name": "backtesting",
+        "module": "ultron.skills.backtesting.skill",
+        "description": "Add or improve backtesting capability.",
+        "status": "active"
+    }
+}

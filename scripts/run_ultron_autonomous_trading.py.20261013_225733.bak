@@ -1,0 +1,6 @@
+#!/usr/bin/env python3
+"""Repository-root launcher for ULTRON autonomous paper trading."""
+from ultron.financial.trading.autonomous_runtime import main
+
+if __name__ == "__main__":
+    main()

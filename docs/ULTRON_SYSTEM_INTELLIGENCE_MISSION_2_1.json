@@ -1,0 +1,177 @@
+{
+  "mission": "ULTRON System Intelligence Mission 2.1",
+  "implementation_status": "COMPLETED",
+  "live_integration": "UNVERIFIED",
+  "deployment_decision": "NO-GO",
+  "pre_edit_plan": [
+    "Map known observation failures to hostStatus DEGRADED and inconclusive/unavailable/stale evidence to UNKNOWN; return VERIFIED only when all host observations are VERIFIED.",
+    "Keep service identity, readiness, and manager ownership gates; preserve known service/ownership failures as DEGRADED and avoid a false VERIFIED result.",
+    "Add deterministic listener-present tests with missing and stale process identities and a full-evidence aggregate test.",
+    "Do not change gateway, UI, authentication, process identity checks, or manager operation behavior."
+  ],
+  "findings_closed": [
+    {
+      "finding": "A-01",
+      "title": "UNKNOWN host observations could yield hostStatus VERIFIED",
+      "closure_status": "CLOSED",
+      "implementation": "Host status is DEGRADED if any observation is DEGRADED or FAILED; UNKNOWN if statuses contain unavailable, unknown, stale, missing, or unrecognized evidence; VERIFIED only if the set of observed statuses is exactly VERIFIED.",
+      "source": "ultron/application/runtime/system_intelligence.py",
+      "line": 423
+    },
+    {
+      "finding": "A-02",
+      "title": "Listener-present readiness behavior lacked deterministic coverage",
+      "closure_status": "CLOSED",
+      "implementation": "Temporary fixture tests force loopback listeners and prove a missing or stale process identity stays non-verified, readiness stays UNKNOWN, and overall status cannot be VERIFIED from listener evidence alone.",
+      "source": "tests/runtime/test_system_intelligence.py",
+      "line": 244
+    }
+  ],
+  "aggregate_behavior": {
+    "host_status": {
+      "known_failure": "DEGRADED",
+      "inconclusive_or_unavailable": "UNKNOWN",
+      "all_observations_verified": "VERIFIED"
+    },
+    "overall_status": {
+      "known_host_failure_or_nonverified_identity_or_uncertain_ownership": "DEGRADED",
+      "otherwise_inconclusive_host_or_readiness": "UNKNOWN",
+      "all_required_evidence_verified": "VERIFIED"
+    },
+    "listener_readiness": {
+      "listener_present": "UNKNOWN",
+      "listener_absent": "UNAVAILABLE",
+      "listener_alone_proves_health": false
+    }
+  },
+  "regression_tests": [
+    {
+      "name": "test_unknown_or_unavailable_host_observation_does_not_verify_host_status",
+      "line": 192,
+      "proves": "CPU UNKNOWN and memory UNAVAILABLE observations result in hostStatus UNKNOWN."
+    },
+    {
+      "name": "test_known_host_observation_failure_is_degraded_not_unknown",
+      "line": 222,
+      "proves": "A failed mocked GPU provider produces FAILED observation and DEGRADED host/overall status."
+    },
+    {
+      "name": "test_listener_without_process_identity_is_not_readiness_or_health",
+      "line": 244,
+      "proves": "With controlled listeners and missing process records, process identity is UNKNOWN, readiness is UNKNOWN, and overall status is not VERIFIED."
+    },
+    {
+      "name": "test_listener_with_stale_process_start_identity_is_not_verified",
+      "line": 271,
+      "proves": "A controlled listener plus a PID with mismatched recorded start ticks yields STALE identity, UNKNOWN readiness, and non-VERIFIED overall status."
+    },
+    {
+      "name": "test_verified_aggregate_requires_and_accepts_all_verified_evidence",
+      "line": 325,
+      "proves": "Explicitly verified host, service, readiness, and ownership evidence reaches VERIFIED; changing CPU evidence to UNKNOWN makes host and overall status UNKNOWN."
+    }
+  ],
+  "changed_files": [
+    {
+      "path": "ultron/application/runtime/system_intelligence.py",
+      "details": "Host status and top-level unknown-versus-known-failure aggregation."
+    },
+    {
+      "path": "tests/runtime/test_system_intelligence.py",
+      "details": "Deterministic host status, failure distinction, listener, missing/stale identity, and verified aggregate regression tests; deterministic repair to existing unavailable-hardware test fixture."
+    },
+    {
+      "path": "docs/RUNTIME_OPERATIONS.md",
+      "details": "Documented host and overall status semantics."
+    },
+    {
+      "path": "docs/ULTRON_SYSTEM_INTELLIGENCE_MISSION_2_1.md",
+      "details": "Mission 2.1 implementation and verification report."
+    },
+    {
+      "path": "docs/ULTRON_SYSTEM_INTELLIGENCE_MISSION_2_1.json",
+      "details": "Machine-readable Mission 2.1 report."
+    }
+  ],
+  "verification": {
+    "final_commands": [
+      {
+        "command": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/.venv/bin/python -m pytest -q tests/runtime/test_system_intelligence.py",
+        "exit_code": 0,
+        "passed": 17,
+        "failed": 0,
+        "skipped": 0
+      },
+      {
+        "command": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/.venv/bin/python -m pytest -q tests/interface/test_interface_gateway_system_intelligence.py",
+        "exit_code": 0,
+        "passed": 3,
+        "failed": 0,
+        "skipped": 0
+      },
+      {
+        "command": "node --test interface/tests/runtimeEvents.test.mjs interface/tests/layout.test.mjs",
+        "exit_code": 0,
+        "passed": 20,
+        "failed": 0,
+        "skipped": 0
+      },
+      {
+        "command": "node --test interface/tests/websocketProvider.test.mjs",
+        "exit_code": 0,
+        "passed": 17,
+        "failed": 0,
+        "skipped": 0
+      },
+      {
+        "command": "node --check interface/operator-console.js && node --check interface/services/providers/websocketProvider.js",
+        "exit_code": 0,
+        "result": "Both JavaScript files passed syntax checking."
+      }
+    ],
+    "totals": {
+      "passed": 57,
+      "failed": 0,
+      "skipped": 0
+    },
+    "intermediate_failure": {
+      "command": "/home/ultron/Projects/ULTRON_INTERFACE_FINAL/.venv/bin/python -m pytest -q tests/runtime/test_system_intelligence.py",
+      "exit_code": 1,
+      "passed": 16,
+      "failed": 1,
+      "detail": "A pre-existing unavailable-GPU test inherited the environment's process count, which independently exceeded the collector cap and made hostStatus DEGRADED. Process count and disk usage were then controlled in the temporary fixture; the final run passed all 17 tests."
+    },
+    "python_syntax": "Pylance syntax validation reported no errors in collector or collector test.",
+    "pylance_diagnostics": "No language-server diagnostics in collector or collector test.",
+    "problems_tool": "No errors in collector test or frontend. The collector reports an import-block sorting/formatting issue; that import order was observed before this mission and was not changed.",
+    "lint_typecheck": "No configured dedicated lint/type-check command found in root pyproject.toml or interface/package.json."
+  },
+  "git": {
+    "metadata_available": false,
+    "command": "git status --short --branch",
+    "exit_code": 128,
+    "error": "fatal: not a git repository",
+    "complete_diff_claimed": false,
+    "intentionally_changed_files": [
+      "ultron/application/runtime/system_intelligence.py",
+      "tests/runtime/test_system_intelligence.py",
+      "docs/RUNTIME_OPERATIONS.md",
+      "docs/ULTRON_SYSTEM_INTELLIGENCE_MISSION_2_1.md",
+      "docs/ULTRON_SYSTEM_INTELLIGENCE_MISSION_2_1.json"
+    ]
+  },
+  "compatibility_and_limitations": [
+    "Gateway and frontend contracts did not change; frontend displays the collector's status directly.",
+    "Production service readiness still emits UNKNOWN for a listener and UNAVAILABLE without one; no production readiness probe returns VERIFIED.",
+    "The verified aggregate test supplies verified service-readiness evidence as a fixture to exercise the collector's aggregate success branch; this does not establish a live service probe.",
+    "No service operation or manager operation was invoked; no live database or persistent runtime state was accessed or changed.",
+    "No live integration verification was performed."
+  ],
+  "scope_safety": {
+    "services_stopped_restarted_adopted_or_handed_off": false,
+    "manager_operations_invoked": false,
+    "live_database_or_runtime_state_modified": false,
+    "authentication_or_process_identity_controls_weakened": false,
+    "unrelated_subsystems_modified": false
+  }
+}

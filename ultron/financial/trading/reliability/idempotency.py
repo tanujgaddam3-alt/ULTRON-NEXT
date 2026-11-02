@@ -1,0 +1,87 @@
+from __future__ import annotations
+import os, sqlite3, tempfile, threading
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from pathlib import Path
+
+@dataclass
+class IdempotencyRecord:
+    key: str
+    order_id: str
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+class OrderIdempotency:
+    """SQLite idempotency; persistent when a path or ULTRON_IDEMPOTENCY_DB is configured."""
+    def __init__(self, db_path=None):
+        configured = db_path or os.environ.get("ULTRON_IDEMPOTENCY_DB")
+        self._temporary_db = configured is None
+        if configured is None:
+            fd, configured = tempfile.mkstemp(prefix="ultron-idempotency-", suffix=".sqlite3")
+            os.close(fd)
+        self.db_path = Path(configured).expanduser()
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._records = {}
+        self._lock = threading.RLock()
+        with self._connect() as db:
+            db.execute("CREATE TABLE IF NOT EXISTS order_idempotency (key TEXT PRIMARY KEY, state TEXT NOT NULL CHECK(state IN ('CLAIMED','COMPLETED')), order_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)")
+
+    def _connect(self):
+        db=sqlite3.connect(str(self.db_path), timeout=20, isolation_level=None)
+        db.row_factory=sqlite3.Row
+        db.execute("PRAGMA busy_timeout=20000")
+        db.execute("PRAGMA journal_mode=WAL")
+        db.execute("PRAGMA synchronous=FULL")
+        return db
+
+    @staticmethod
+    def _key(key):
+        if not isinstance(key,str) or not key.strip(): raise ValueError("Idempotency key is required.")
+        return key.strip()
+
+    def check(self,key):
+        key=self._key(key)
+        with self._lock, self._connect() as db:
+            row=db.execute("SELECT key,state,order_id,created_at FROM order_idempotency WHERE key=?",(key,)).fetchone()
+            if row is None or row["state"] != "COMPLETED" or not row["order_id"]: return None
+            rec=IdempotencyRecord(row["key"],row["order_id"],datetime.fromisoformat(row["created_at"]))
+            self._records[key]=rec
+            return rec
+
+    def claim(self,key):
+        key=self._key(key); now=datetime.now(UTC).isoformat()
+        with self._lock, self._connect() as db:
+            try:
+                db.execute("BEGIN IMMEDIATE")
+                db.execute("INSERT INTO order_idempotency(key,state,order_id,created_at,updated_at) VALUES(?, 'CLAIMED', NULL, ?, ?)",(key,now,now))
+                db.execute("COMMIT"); return True
+            except sqlite3.IntegrityError:
+                if db.in_transaction: db.execute("ROLLBACK")
+                return False
+            except Exception:
+                if db.in_transaction: db.execute("ROLLBACK")
+                raise
+
+    def record(self,key,order_id):
+        key=self._key(key)
+        if not isinstance(order_id,str) or not order_id.strip(): raise ValueError("Order ID is required.")
+        order_id=order_id.strip(); now=datetime.now(UTC).isoformat()
+        with self._lock, self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row=db.execute("SELECT state,order_id FROM order_idempotency WHERE key=?",(key,)).fetchone()
+            if row is None: db.execute("INSERT INTO order_idempotency VALUES(?, 'COMPLETED', ?, ?, ?)",(key,order_id,now,now))
+            elif row["state"] == "COMPLETED":
+                if row["order_id"] != order_id:
+                    db.execute("ROLLBACK"); raise RuntimeError("Idempotency key already maps to a different order ID.")
+            else: db.execute("UPDATE order_idempotency SET state='COMPLETED', order_id=?, updated_at=? WHERE key=?",(order_id,now,key))
+            db.execute("COMMIT")
+        rec=IdempotencyRecord(key,order_id); self._records[key]=rec; return rec
+
+    def has_processed(self,key):
+        key=self._key(key)
+        with self._connect() as db: return db.execute("SELECT 1 FROM order_idempotency WHERE key=?",(key,)).fetchone() is not None
+
+    def clear(self):
+        with self._lock: self._records.clear()
+
+    def size(self):
+        with self._connect() as db: return int(db.execute("SELECT COUNT(*) FROM order_idempotency").fetchone()[0])

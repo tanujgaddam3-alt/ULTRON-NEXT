@@ -1,0 +1,69 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Logs
+logs/
+*.log
+
+# Test cache
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Type checking
+.mypy_cache/
+.pyre/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment variables
+.env
+.env.*
+
+# Build
+build/
+dist/
+*.egg-info/
+.env.financial
+
+# Local databases and runtime state
+*.db
+*.sqlite
+*.sqlite3
+*.sqlite3-*
+*.db-wal
+*.db-shm
+
+# Voice-reference staging and nested environments
+ultron/voice/reference_staging/
+**/.venv/
+
+# Local backups, caches, generated reports, and scratch files
+.atlas-cache.json
+.backups/
+.ultron_patch_backups/
+archive/
+groq-test/
+knowledge_input/
+reports/
+Projects/
+code-statistics.pdf
+mypy_errors.txt
+ruff_report.json
+ultron_files.txt
+how --format=fuller --stat HEAD
+ultron_files.txt
+how --format=fuller --stat HEAD

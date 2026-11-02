@@ -1,0 +1,107 @@
+{
+  "analysis_version": "2.1",
+  "source": "WhatsApp Audio 2026-09-13 at 11.34.59 PM.mp4",
+  "analysis_date": "2026-09-14",
+  "reference_wav": "assets/reference/ultron_reference.wav",
+
+  "signal": {
+    "duration_seconds": 559.9,
+    "sample_rate_hz": 48000,
+    "channels": 1,
+    "peak_dbfs": 0.0,
+    "rms_dbfs": -15.5,
+    "lufs_approximate": -22.2,
+    "dynamic_range_db": 38.8,
+    "crest_factor_db": 15.5,
+    "noise_floor_db": -38.8,
+    "clipping_notice": "WhatsApp-encoded voice message: 2147 samples at >=0.99 amplitude (normal WhatsApp VOIP limiter/compander behavior). Energy distribution below is authoritative."
+  },
+
+  "pitch": {
+    "f0_median_hz": 90.6,
+    "f0_mean_hz": 97.2,
+    "f0_std_hz": 35.8,
+    "f0_min_hz": 55.0,
+    "f0_max_hz": 377.0,
+    "f0_range_hz": 322.0,
+    "f0_p5": 62.5,
+    "f0_p25": 78.0,
+    "f0_p75": 112.0,
+    "f0_p95": 166.4,
+    "voice_class": "bass-baritone",
+    "depth_classification": "deep",
+    "pitch_character": "calm, low-resting, narrow-moderate modulation in connected speech; occasional emphatic lifts into 140-170 Hz",
+    "sentence_ending_behavior": "predominantly falling or level; questions rise modestly toward the p75 range"
+  },
+
+  "formants": {
+    "f1_hz": 527.0,
+    "f2_hz": 973.0,
+    "f3_hz": 2145.0,
+    "f4_hz": 2719.0,
+    "f5_hz": 3305.0,
+    "f1_p25": 211.0,
+    "f1_p75": 633.0,
+    "notes": "Wide F1 spread (open, resonant low vowels). Lower vocal tract resonance dominates the spectrum."
+  },
+
+  "spectral": {
+    "centroid_hz": 449.1,
+    "rolloff_85_hz": 513.2,
+    "rolloff_95_hz": 1531.9,
+    "bandwidth_hz": 1082.6,
+    "low_band_pct": 64.9,
+    "mid_band_pct": 30.9,
+    "high_band_pct": 4.3,
+    "vocal_weight": "heavy - 65% of energy below 300 Hz",
+    "darkness_index": 0.65
+  },
+
+  "harmonic": {
+    "harmonic_to_noise_ratio_db": -0.4,
+    "voiced_fraction_pct": 79.2,
+    "notes": "HNR low because the recording is a compressed WhatsApp VOIP message (EQ/codec raises noise floor). Underlying voice is clearly periodic; HNR of the source recording is not a voice defect but an artefact."
+  },
+
+  "temporal": {
+    "n_pauses": 379,
+    "mean_pause_s": 0.097,
+    "median_pause_s": 0.075,
+    "max_pause_s": 0.325,
+    "speech_cadence": "deliberate, unhurried; short phrase-level pauses with a measured pacing",
+    "speech_rate_est": "slower than conversational broadcast speech already characterized by pre-max F0 style checks"
+  },
+
+  "sibilance": {
+    "energy_in_4_8khz_pct": 1.61,
+    "characteristic": "low sibilance; muted, controlled /s/ energy - characteristic of soft-spoken low-pitch delivery"
+  },
+
+  "processing_signature": {
+    "source_is_voip_recording": true,
+    "expected_codec": "WhatsApp Opus VOIP compression",
+    "artefacts_present": [
+      "peak clipping near 0 dBFS",
+      "compressed dynamic range (crest 15.5 dB)",
+      "raised noise floor vs studio recording"
+    ],
+    "voice_vs_processing": "Deep bass-baritone F0, heavy low-band weight, intended delivery remains the source; brickwall clipping and HNR compression are recording artefacts to REMOVE, not reproduce, in the synthesis pipeline (produce clean output then shape timbre only)."
+  },
+
+  "delivery_profile": {
+    "base_tempo_factor": 0.92,
+    "pitch_target_median": 90.0,
+    "pitch_target_range_p5l": 60.0,
+    "pitch_target_range_p95h": 165.0,
+    "vowel_resonance_gain_low": 2.5,
+    "emphasis_intensity": "moderate"
+  },
+
+  "confidence": {
+    "f0_median": "high (matches independent first-pass measure 92.1 Hz within 1.5 Hz)",
+    "spectral_band": "high",
+    "formants": "medium (cepstral peak-picking on a VOIP-coded source)",
+    "hnr": "medium (codec artefacts dominate)",
+    "lufs": "medium (simple mean-RMS approximation)"
+  }
+}
