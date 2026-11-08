@@ -1,15 +1,21 @@
 import asyncio
 import base64
+import contextlib
 import hashlib
 import json
 import os
 import secrets
+import socket
 import unicodedata
+from types import SimpleNamespace
 
 import pytest
 import websockets
 from websockets.exceptions import ConnectionClosed, InvalidStatus
 
+from ultron.application.content.store import ContentStore
+from ultron.application.runtime import interface_gateway
+from ultron.application.runtime.operation_store import SQLiteOperationStore
 from ultron.application.runtime.local_auth_helper import (
     ENDPOINT_PATH,
     FRONTEND_ORIGIN,
@@ -22,12 +28,21 @@ from ultron.application.runtime.local_auth_helper import (
     read_backend_token,
     write_password_verifier,
 )
+from ultron.core.event_bus import EventBus
+from ultron.security.identity.authenticator import WebSocketAuthenticator
 
 
 def write_private(path, value):
     descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
     with os.fdopen(descriptor, "w", encoding="ascii") as file:
         file.write(value)
+
+
+async def receive_optional_gateway_message(websocket):
+    try:
+        return await websocket.recv()
+    except ConnectionClosed:
+        return None
 
 
 def test_password_verifier_is_salted_private_and_checks_password(tmp_path):
@@ -139,12 +154,16 @@ def test_local_password_authenticates_upstream_without_exposing_backend_token(tm
 
         async def gateway_handler(websocket):
             nonlocal gateway_sessions
-            gateway_sessions += 1
             await websocket.send(json.dumps({
                 "type": "connected",
                 "authenticationRequired": True,
+                "runtimeId": "ultron-default",
             }))
-            authentication = json.loads(await websocket.recv())
+            raw_authentication = await receive_optional_gateway_message(websocket)
+            if raw_authentication is None:
+                return
+            gateway_sessions += 1
+            authentication = json.loads(raw_authentication)
             assert authentication["action"] == "AUTHENTICATE"
             assert authentication["credential"] == token
             assert authentication["credential"] != password
@@ -194,6 +213,7 @@ def test_local_password_authenticates_upstream_without_exposing_backend_token(tm
                 ) as browser:
                     greeting = json.loads(await browser.recv())
                     assert greeting["authenticationRequired"] is True
+                    assert greeting["runtimeId"] == "ultron-default"
                     assert token not in json.dumps(greeting)
                     await browser.send(json.dumps({
                         "action": "AUTHENTICATE",
@@ -203,6 +223,7 @@ def test_local_password_authenticates_upstream_without_exposing_backend_token(tm
                     authenticated = json.loads(await browser.recv())
                     assert authenticated["status"] == "AUTHENTICATED"
                     assert authenticated["sessionId"] == "gateway-session-1"
+                    assert authenticated["runtimeId"] == "ultron-default"
                     assert token not in json.dumps(authenticated)
 
                     channels = ["trading", "omega"]
@@ -242,6 +263,403 @@ def test_local_password_authenticates_upstream_without_exposing_backend_token(tm
     asyncio.run(run())
 
 
+def test_gateway_response_secret_rejection_logs_only_safe_action_and_path(
+    tmp_path,
+    caplog,
+):
+    async def run():
+        token = secrets.token_urlsafe(32)
+        password = secrets.token_urlsafe(24)
+        gateway_connections = 0
+
+        async def gateway_handler(websocket):
+            nonlocal gateway_connections
+            gateway_connections += 1
+            await websocket.send(json.dumps({
+                "type": "connected",
+                "authenticationRequired": True,
+                "runtimeId": "ultron-default",
+            }))
+            raw_authentication = await receive_optional_gateway_message(websocket)
+            if raw_authentication is None:
+                return
+            await websocket.send(json.dumps({
+                "action": "AUTHENTICATION_RESULT",
+                "success": True,
+                "status": "AUTHENTICATED",
+                "principal": "local-operator",
+                "sessionId": "secret-guard-session",
+            }))
+            request = json.loads(await websocket.recv())
+            assert request["action"] == "SUBSCRIBE"
+            await websocket.send(json.dumps({
+                "action": "PRIVATE_DIAGNOSTIC_RESULT",
+                "payload": {"private": {"field": f"prefix-{token}-suffix"}},
+            }))
+            await websocket.wait_closed()
+
+        async with websockets.serve(
+            gateway_handler, "127.0.0.1", 0
+        ) as gateway:
+            gateway_port = gateway.sockets[0].getsockname()[1]
+            token_path = tmp_path / "interface-token"
+            verifier_path = tmp_path / "interface-unlock.json"
+            write_private(token_path, token + "\n")
+            write_password_verifier(password, verifier_path)
+            helper = LocalAuthHelper(
+                token_path=token_path,
+                verifier_path=verifier_path,
+                throttle_path=tmp_path / "throttle.db",
+                gateway_url=f"ws://127.0.0.1:{gateway_port}{ENDPOINT_PATH}",
+            )
+
+            async def browser_flow(url):
+                async with websockets.connect(
+                    url,
+                    origin=FRONTEND_ORIGIN,
+                    proxy=None,
+                ) as browser:
+                    await browser.recv()
+                    await browser.send(json.dumps({
+                        "action": "AUTHENTICATE",
+                        "correlationId": "secret-guard-auth",
+                        "credential": password,
+                    }))
+                    assert json.loads(await browser.recv())["status"] == "AUTHENTICATED"
+                    await browser.send(json.dumps({
+                        "action": "SUBSCRIBE",
+                        "channels": ["runtimeEvents"],
+                    }))
+                    with pytest.raises(ConnectionClosed) as closed:
+                        await browser.recv()
+                    assert closed.value.rcvd.code == 1008
+                    assert "credential" not in closed.value.rcvd.reason.lower()
+                    assert gateway_connections == 2
+
+            await start_helper(helper, browser_flow)
+        return token
+
+    with caplog.at_level("WARNING"):
+        token = asyncio.run(run())
+    assert "PRIVATE_DIAGNOSTIC_RESULT" in caplog.text
+    assert "$.payload.private.field" in caplog.text
+    assert token not in caplog.text
+
+
+def test_gateway_authentication_expiry_close_is_propagated_to_browser(tmp_path):
+    async def run():
+        token = secrets.token_urlsafe(32)
+        password = secrets.token_urlsafe(24)
+
+        async def gateway_handler(websocket):
+            await websocket.send(json.dumps({
+                "type": "connected",
+                "authenticationRequired": True,
+                "runtimeId": "ultron-default",
+            }))
+            raw_authentication = await receive_optional_gateway_message(websocket)
+            if raw_authentication is None:
+                return
+            await websocket.send(json.dumps({
+                "action": "AUTHENTICATION_RESULT",
+                "success": True,
+                "status": "AUTHENTICATED",
+                "principal": "local-operator",
+                "sessionId": "expiring-session",
+            }))
+            await websocket.recv()
+            await websocket.send(json.dumps({
+                "action": "SUBSCRIBE_ACK",
+                "channels": ["runtimeEvents"],
+            }))
+            await websocket.close(code=1008, reason="Authentication expired.")
+
+        async with websockets.serve(
+            gateway_handler, "127.0.0.1", 0
+        ) as gateway:
+            gateway_port = gateway.sockets[0].getsockname()[1]
+            token_path = tmp_path / "interface-token"
+            verifier_path = tmp_path / "interface-unlock.json"
+            write_private(token_path, token + "\n")
+            write_password_verifier(password, verifier_path)
+            helper = LocalAuthHelper(
+                token_path=token_path,
+                verifier_path=verifier_path,
+                throttle_path=tmp_path / "throttle.db",
+                gateway_url=f"ws://127.0.0.1:{gateway_port}{ENDPOINT_PATH}",
+            )
+
+            async def browser_flow(url):
+                async with websockets.connect(
+                    url,
+                    origin=FRONTEND_ORIGIN,
+                    proxy=None,
+                ) as browser:
+                    await browser.recv()
+                    await browser.send(json.dumps({
+                        "action": "AUTHENTICATE",
+                        "correlationId": "expiry-auth",
+                        "credential": password,
+                    }))
+                    assert json.loads(await browser.recv())["status"] == "AUTHENTICATED"
+                    await browser.send(json.dumps({
+                        "action": "SUBSCRIBE",
+                        "channels": ["runtimeEvents"],
+                    }))
+                    assert json.loads(await browser.recv())["action"] == "SUBSCRIBE_ACK"
+                    with pytest.raises(ConnectionClosed) as closed:
+                        await browser.recv()
+                    assert closed.value.rcvd.code == 1008
+                    assert closed.value.rcvd.reason == "Authentication expired."
+
+            await start_helper(helper, browser_flow)
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("runtime_id", [None, "../candidate"])
+def test_local_helper_refuses_to_authenticate_without_a_valid_gateway_identity(
+    tmp_path,
+    runtime_id,
+):
+    async def run():
+        token = secrets.token_urlsafe(32)
+        password = secrets.token_urlsafe(24)
+        gateway_connections = 0
+
+        async def gateway_handler(websocket):
+            nonlocal gateway_connections
+            gateway_connections += 1
+            greeting = {
+                "type": "connected",
+                "authenticationRequired": True,
+            }
+            if runtime_id is not None:
+                greeting["runtimeId"] = runtime_id
+            await websocket.send(json.dumps(greeting))
+            await websocket.wait_closed()
+
+        async with websockets.serve(
+            gateway_handler, "127.0.0.1", 0
+        ) as gateway:
+            gateway_port = gateway.sockets[0].getsockname()[1]
+            token_path = tmp_path / "interface-token"
+            verifier_path = tmp_path / "interface-unlock.json"
+            write_private(token_path, token + "\n")
+            write_password_verifier(password, verifier_path)
+            helper = LocalAuthHelper(
+                token_path=token_path,
+                verifier_path=verifier_path,
+                throttle_path=tmp_path / "throttle.db",
+                gateway_url=f"ws://127.0.0.1:{gateway_port}{ENDPOINT_PATH}",
+            )
+
+            async def browser_flow(url):
+                async with websockets.connect(
+                    url,
+                    origin=FRONTEND_ORIGIN,
+                    proxy=None,
+                ) as browser:
+                    greeting = json.loads(await browser.recv())
+                    assert greeting["type"] == "connected"
+                    assert "runtimeId" not in greeting
+                    with pytest.raises(ConnectionClosed):
+                        await browser.recv()
+                    assert gateway_connections == 1
+
+            await start_helper(helper, browser_flow)
+
+    asyncio.run(run())
+
+
+def test_local_helper_binds_authentication_to_the_preflight_gateway_identity(tmp_path):
+    async def run():
+        token = secrets.token_urlsafe(32)
+        password = secrets.token_urlsafe(24)
+        gateway_connections = 0
+
+        async def gateway_handler(websocket):
+            nonlocal gateway_connections
+            gateway_connections += 1
+            runtime_id = (
+                "ultron-default"
+                if gateway_connections == 1
+                else "candidate-v10"
+            )
+            await websocket.send(json.dumps({
+                "type": "connected",
+                "authenticationRequired": True,
+                "runtimeId": runtime_id,
+            }))
+            raw = await receive_optional_gateway_message(websocket)
+            if raw is not None:
+                raise AssertionError(
+                    "The helper must not send its backend token to a changed runtime."
+                )
+
+        async with websockets.serve(
+            gateway_handler, "127.0.0.1", 0
+        ) as gateway:
+            gateway_port = gateway.sockets[0].getsockname()[1]
+            token_path = tmp_path / "interface-token"
+            verifier_path = tmp_path / "interface-unlock.json"
+            write_private(token_path, token + "\n")
+            write_password_verifier(password, verifier_path)
+            helper = LocalAuthHelper(
+                token_path=token_path,
+                verifier_path=verifier_path,
+                throttle_path=tmp_path / "throttle.db",
+                gateway_url=f"ws://127.0.0.1:{gateway_port}{ENDPOINT_PATH}",
+            )
+
+            async def browser_flow(url):
+                async with websockets.connect(
+                    url,
+                    origin=FRONTEND_ORIGIN,
+                    proxy=None,
+                ) as browser:
+                    greeting = json.loads(await browser.recv())
+                    assert greeting["runtimeId"] == "ultron-default"
+                    await browser.send(json.dumps({
+                        "action": "AUTHENTICATE",
+                        "correlationId": "changed-runtime",
+                        "credential": password,
+                    }))
+                    result = json.loads(await browser.recv())
+                    assert result["status"] == "RUNTIME_IDENTITY_MISMATCH"
+                    assert "runtimeId" not in result
+                    assert token not in json.dumps(result)
+                    assert gateway_connections == 2
+
+            await start_helper(helper, browser_flow)
+
+    asyncio.run(run())
+
+
+def test_local_login_authenticates_through_real_gateway_and_relogin_gets_new_session(
+    tmp_path,
+    monkeypatch,
+):
+    async def run():
+        token = secrets.token_urlsafe(32)
+        password = secrets.token_urlsafe(24)
+        operation_database = tmp_path / "operations.db"
+        content_database = tmp_path / "content.db"
+        content_store = ContentStore(content_database)
+        content_store.migrate_publishing_attempt_schema()
+        content_store.migrate_private_render_operation_schema()
+        content_store.close()
+
+        monkeypatch.setenv(WebSocketAuthenticator.TOKEN_ENV, token)
+        monkeypatch.setenv("ULTRON_OPERATION_DB", str(operation_database))
+        monkeypatch.setenv("ULTRON_CRE_DATABASE", str(content_database))
+
+        with socket.socket() as listener:
+            listener.bind(("127.0.0.1", 0))
+            gateway_port = listener.getsockname()[1]
+
+        container = SimpleNamespace(
+            event_bus=EventBus(),
+            runtime=SimpleNamespace(
+                state=SimpleNamespace(cycle_count=0, running=True),
+            ),
+            executor=SimpleNamespace(),
+            skills=SimpleNamespace(),
+            execution_audit_store=SQLiteOperationStore(operation_database),
+        )
+        gateway_task = asyncio.create_task(
+            interface_gateway.serve_interface(
+                container,
+                host="127.0.0.1",
+                port=gateway_port,
+            )
+        )
+        gateway_url = f"ws://127.0.0.1:{gateway_port}{ENDPOINT_PATH}"
+        gateway_ready = False
+        deadline = asyncio.get_running_loop().time() + 5
+        try:
+            while not gateway_ready:
+                if gateway_task.done():
+                    await gateway_task
+                    raise AssertionError("Gateway exited before becoming ready.")
+                if asyncio.get_running_loop().time() >= deadline:
+                    raise AssertionError("Gateway did not become ready.")
+                try:
+                    async with websockets.connect(gateway_url, proxy=None) as probe:
+                        greeting = json.loads(await asyncio.wait_for(probe.recv(), timeout=1))
+                        assert greeting["authenticationRequired"] is True
+                        assert greeting["runtimeId"] == "ultron-default"
+                        gateway_ready = True
+                except (OSError, TimeoutError):
+                    await asyncio.sleep(0.05)
+
+            token_path = tmp_path / "interface-token"
+            verifier_path = tmp_path / "interface-unlock.json"
+            write_private(token_path, token + "\n")
+            write_password_verifier(password, verifier_path)
+            helper = LocalAuthHelper(
+                token_path=token_path,
+                verifier_path=verifier_path,
+                throttle_path=tmp_path / "throttle.db",
+                gateway_url=gateway_url,
+            )
+
+            session_ids = []
+
+            async def browser_flow(url):
+                async with websockets.connect(
+                    url,
+                    origin=FRONTEND_ORIGIN,
+                    proxy=None,
+                ) as browser:
+                    greeting = json.loads(await browser.recv())
+                    assert greeting["authenticationRequired"] is True
+                    assert greeting["authMethod"] == "local-unlock"
+                    assert greeting["runtimeId"] == "ultron-default"
+                    assert token not in json.dumps(greeting)
+
+                    await browser.send(json.dumps({
+                        "action": "AUTHENTICATE",
+                        "correlationId": "isolated-login",
+                        "credential": password,
+                    }))
+                    authenticated = json.loads(
+                        await asyncio.wait_for(browser.recv(), timeout=2)
+                    )
+                    assert authenticated["success"] is True
+                    assert authenticated["status"] == "AUTHENTICATED"
+                    assert authenticated["correlationId"] == "isolated-login"
+                    assert authenticated["principal"] == "local-operator"
+                    assert authenticated["runtimeId"] == "ultron-default"
+                    assert isinstance(authenticated["sessionId"], str)
+                    assert isinstance(authenticated["expiresAt"], str)
+                    assert token not in json.dumps(authenticated)
+                    assert password not in json.dumps(authenticated)
+                    session_ids.append(authenticated["sessionId"])
+
+                    await browser.send(json.dumps({
+                        "action": "SUBSCRIBE",
+                        "correlationId": "isolated-subscribe",
+                        "channels": [],
+                    }))
+                    acknowledgement = json.loads(
+                        await asyncio.wait_for(browser.recv(), timeout=2)
+                    )
+                    assert acknowledgement["action"] == "SUBSCRIBE_ACK"
+                    assert acknowledgement["channels"] == []
+
+            await start_helper(helper, browser_flow)
+            await start_helper(helper, browser_flow)
+            assert len(session_ids) == 2
+            assert session_ids[0] != session_ids[1]
+        finally:
+            gateway_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await gateway_task
+
+    asyncio.run(run())
+
+
 def test_helper_relays_bounded_scene_preview_response_larger_than_request_limit(tmp_path):
     async def run():
         token = secrets.token_urlsafe(32)
@@ -252,8 +670,12 @@ def test_helper_relays_bounded_scene_preview_response_larger_than_request_limit(
             await websocket.send(json.dumps({
                 "type": "connected",
                 "authenticationRequired": True,
+                "runtimeId": "ultron-default",
             }))
-            authentication = json.loads(await websocket.recv())
+            raw_authentication = await receive_optional_gateway_message(websocket)
+            if raw_authentication is None:
+                return
+            authentication = json.loads(raw_authentication)
             assert authentication["credential"] == token
             await websocket.send(json.dumps({
                 "action": "AUTHENTICATION_RESULT",
@@ -321,8 +743,12 @@ def test_helper_relays_large_authenticated_video_upload_and_registration_respons
             await websocket.send(json.dumps({
                 "type": "connected",
                 "authenticationRequired": True,
+                "runtimeId": "ultron-default",
             }))
-            authentication = json.loads(await websocket.recv())
+            raw_authentication = await receive_optional_gateway_message(websocket)
+            if raw_authentication is None:
+                return
+            authentication = json.loads(raw_authentication)
             assert authentication["credential"] == token
             await websocket.send(json.dumps({
                 "action": "AUTHENTICATION_RESULT",
@@ -338,6 +764,8 @@ def test_helper_relays_large_authenticated_video_upload_and_registration_respons
                 request["payload"]["videoBase64"],
                 validate=True,
             ) == source_bytes
+            assert request["payload"]["acquisitionRequestId"] == "selected-request-1"
+            assert request["payload"]["targetContext"] == "youtube_shorts"
             await websocket.send(json.dumps({
                 "action": "CRE_SOURCE_VIDEO_RESULT",
                 "correlationId": request["correlationId"],
@@ -389,6 +817,11 @@ def test_helper_relays_large_authenticated_video_upload_and_registration_respons
                         "payload": {
                             "videoBase64": base64.b64encode(source_bytes).decode("ascii"),
                             "fileName": "source.mp4",
+                            "mediaType": "video/mp4",
+                            "targetContext": "youtube_shorts",
+                            "accountId": "local-channel",
+                            "territory": "US",
+                            "acquisitionRequestId": "selected-request-1",
                         },
                     }))
                     response = json.loads(
@@ -483,8 +916,12 @@ def test_helper_relays_maximum_private_render_artifact_with_bounded_envelope(
             await websocket.send(json.dumps({
                 "type": "connected",
                 "authenticationRequired": True,
+                "runtimeId": "ultron-default",
             }))
-            authentication = json.loads(await websocket.recv())
+            raw_authentication = await receive_optional_gateway_message(websocket)
+            if raw_authentication is None:
+                return
+            authentication = json.loads(raw_authentication)
             assert authentication["credential"] == token
             await websocket.send(json.dumps({
                 "action": "AUTHENTICATION_RESULT",
@@ -494,7 +931,8 @@ def test_helper_relays_maximum_private_render_artifact_with_bounded_envelope(
                 "sessionId": "maximum-render-session",
                 "expiresAt": "later",
             }))
-            await websocket.recv()
+            if await receive_optional_gateway_message(websocket) is None:
+                return
             await websocket.send(serialized_response)
 
         async with websockets.serve(
@@ -570,8 +1008,10 @@ def test_helper_rejects_gateway_response_over_configured_receive_limit(
             await websocket.send(json.dumps({
                 "type": "connected",
                 "authenticationRequired": True,
+                "runtimeId": "ultron-default",
             }))
-            await websocket.recv()
+            if await receive_optional_gateway_message(websocket) is None:
+                return
             await websocket.send(json.dumps({
                 "action": "AUTHENTICATION_RESULT",
                 "success": True,
@@ -580,7 +1020,8 @@ def test_helper_rejects_gateway_response_over_configured_receive_limit(
                 "sessionId": "over-limit-session",
                 "expiresAt": "later",
             }))
-            await websocket.recv()
+            if await receive_optional_gateway_message(websocket) is None:
+                return
             await websocket.send(json.dumps({
                 "action": "CRE_PRIVATE_PROJECT_RENDER_RESULT",
                 "correlationId": "over-limit-render",
@@ -648,6 +1089,11 @@ def test_helper_rejects_untrusted_origin_before_gateway_connection(tmp_path, ori
         async def gateway_handler(websocket):
             nonlocal gateway_connections
             gateway_connections += 1
+            await websocket.send(json.dumps({
+                "type": "connected",
+                "authenticationRequired": True,
+                "runtimeId": "ultron-default",
+            }))
             await websocket.wait_closed()
 
         async with websockets.serve(gateway_handler, "127.0.0.1", 0) as gateway:
@@ -687,6 +1133,11 @@ def test_protected_channel_request_is_not_forwarded_before_local_authentication(
         async def gateway_handler(websocket):
             nonlocal gateway_connections
             gateway_connections += 1
+            await websocket.send(json.dumps({
+                "type": "connected",
+                "authenticationRequired": True,
+                "runtimeId": "ultron-default",
+            }))
             await websocket.wait_closed()
 
         async with websockets.serve(gateway_handler, "127.0.0.1", 0) as gateway:
@@ -711,7 +1162,7 @@ def test_protected_channel_request_is_not_forwarded_before_local_authentication(
                     }))
                     result = json.loads(await browser.recv())
                     assert result["status"] == "AUTHENTICATION_FAILED"
-                assert gateway_connections == 0
+                assert gateway_connections == 1
 
             await start_helper(helper, browser_flow)
 
@@ -727,8 +1178,10 @@ def test_gateway_session_expiry_closes_local_proxy_session(tmp_path):
             await websocket.send(json.dumps({
                 "type": "connected",
                 "authenticationRequired": True,
+                "runtimeId": "ultron-default",
             }))
-            await websocket.recv()
+            if await receive_optional_gateway_message(websocket) is None:
+                return
             await websocket.send(json.dumps({
                 "action": "AUTHENTICATION_RESULT",
                 "status": "AUTHENTICATED",
@@ -763,13 +1216,88 @@ def test_gateway_session_expiry_closes_local_proxy_session(tmp_path):
                     assert json.loads(await browser.recv())["status"] == "AUTHENTICATED"
                     with pytest.raises(ConnectionClosed):
                         await asyncio.wait_for(browser.recv(), timeout=1)
+                    assert browser.close_code == 1008
+                    assert browser.close_reason == "Authentication expired."
+
+            await start_helper(helper, browser_flow)
+
+    asyncio.run(run())
+
+def test_client_disconnect_closes_upstream_gateway_connection(tmp_path):
+    async def run():
+        token = secrets.token_urlsafe(32)
+        password = secrets.token_urlsafe(24)
+        connections = 0
+        upstream_closed = asyncio.Event()
+
+        async def gateway_handler(websocket):
+            nonlocal connections
+            connections += 1
+            await websocket.send(json.dumps({
+                "type": "connected",
+                "authenticationRequired": True,
+                "runtimeId": "ultron-default",
+            }))
+            if connections == 1:
+                await websocket.wait_closed()
+                return
+            await websocket.recv()
+            await websocket.send(json.dumps({
+                "action": "AUTHENTICATION_RESULT",
+                "success": True,
+                "status": "AUTHENTICATED",
+                "principal": "local-operator",
+                "sessionId": "disconnect-session",
+            }))
+            await websocket.recv()
+            await websocket.send(json.dumps({
+                "action": "SUBSCRIBE_ACK",
+                "channels": ["runtimeEvents"],
+            }))
+            await websocket.wait_closed()
+            upstream_closed.set()
+
+        async with websockets.serve(
+            gateway_handler, "127.0.0.1", 0
+        ) as gateway:
+            gateway_port = gateway.sockets[0].getsockname()[1]
+            token_path = tmp_path / "interface-token"
+            verifier_path = tmp_path / "interface-unlock.json"
+            write_private(token_path, token + "\n")
+            write_password_verifier(password, verifier_path)
+            helper = LocalAuthHelper(
+                token_path=token_path,
+                verifier_path=verifier_path,
+                throttle_path=tmp_path / "throttle.db",
+                gateway_url=f"ws://127.0.0.1:{gateway_port}{ENDPOINT_PATH}",
+            )
+
+            async def browser_flow(url):
+                async with websockets.connect(
+                    url,
+                    origin=FRONTEND_ORIGIN,
+                    proxy=None,
+                ) as browser:
+                    await browser.recv()
+                    await browser.send(json.dumps({
+                        "action": "AUTHENTICATE",
+                        "correlationId": "disconnect-auth",
+                        "credential": password,
+                    }))
+                    assert json.loads(await browser.recv())["status"] == "AUTHENTICATED"
+                    await browser.send(json.dumps({
+                        "action": "SUBSCRIBE",
+                        "channels": ["runtimeEvents"],
+                    }))
+                    assert json.loads(await browser.recv())["action"] == "SUBSCRIBE_ACK"
+                await asyncio.wait_for(upstream_closed.wait(), timeout=1)
 
             await start_helper(helper, browser_flow)
 
     asyncio.run(run())
 
 
-def test_gateway_unavailable_returns_explicit_authentication_result(tmp_path):
+def test_gateway_unavailable_does_not_claim_a_runtime_identity(tmp_path):
     async def run():
         token = secrets.token_urlsafe(32)
         password = secrets.token_urlsafe(24)
@@ -795,15 +1323,9 @@ def test_gateway_unavailable_returns_explicit_authentication_result(tmp_path):
 
         async def browser_flow(url):
             async with websockets.connect(url, origin=FRONTEND_ORIGIN, proxy=None) as browser:
-                await browser.recv()
-                await browser.send(json.dumps({
-                    "action": "AUTHENTICATE",
-                    "correlationId": "gateway-down",
-                    "credential": password,
-                }))
-                response = json.loads(await asyncio.wait_for(browser.recv(), timeout=2))
-                assert response["status"] == "AUTHENTICATION_UNAVAILABLE"
-                assert response["error"] == "The protected gateway is unavailable."
+                with pytest.raises(ConnectionClosed):
+                    await browser.recv()
+                assert browser.close_code == 1013
 
         await start_helper(helper, browser_flow)
 
@@ -819,6 +1341,11 @@ def test_password_guesses_are_throttled_across_reconnects_and_helper_restart(tmp
         async def gateway_handler(websocket):
             nonlocal gateway_connections
             gateway_connections += 1
+            await websocket.send(json.dumps({
+                "type": "connected",
+                "authenticationRequired": True,
+                "runtimeId": "ultron-default",
+            }))
             await websocket.wait_closed()
 
         async with websockets.serve(gateway_handler, "127.0.0.1", 0) as gateway:
@@ -862,7 +1389,7 @@ def test_password_guesses_are_throttled_across_reconnects_and_helper_restart(tmp
                         if attempt == MAX_AUTH_FAILURES - 1
                         else "AUTHENTICATION_FAILED",
                     )
-                assert gateway_connections == 0
+                assert gateway_connections == MAX_AUTH_FAILURES
 
             await start_helper(helper, first_run)
 
@@ -879,7 +1406,7 @@ def test_password_guesses_are_throttled_across_reconnects_and_helper_restart(tmp
                     password,
                     "AUTHENTICATION_LOCKED",
                 )
-                assert gateway_connections == 0
+                assert gateway_connections == MAX_AUTH_FAILURES + 1
 
             await start_helper(restarted_helper, after_restart)
             assert PersistentAttemptThrottle(throttle_path).retry_after() > 0
@@ -911,8 +1438,10 @@ def test_helper_distinguishes_gateway_protocol_and_upstream_rejection(
             await websocket.send(json.dumps({
                 "type": "connected",
                 "authenticationRequired": True,
+                "runtimeId": "ultron-default",
             }))
-            await websocket.recv()
+            if await receive_optional_gateway_message(websocket) is None:
+                return
             await websocket.send(json.dumps(gateway_auth_response))
             await websocket.wait_closed()
 

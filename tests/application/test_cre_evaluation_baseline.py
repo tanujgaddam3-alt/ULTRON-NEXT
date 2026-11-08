@@ -467,8 +467,8 @@ def test_synthetic_cre_editing_baseline(tmp_path, monkeypatch, record_property):
         single_overlap_count = _substantial_overlap_count(
             persisted_single_plan.segments
         )
-        assert single_repeated_interval_count > 0
-        assert single_overlap_count > 0
+        assert single_repeated_interval_count == 0
+        assert single_overlap_count == 0
         (
             single_result,
             single_output,
@@ -527,7 +527,7 @@ def test_synthetic_cre_editing_baseline(tmp_path, monkeypatch, record_property):
             "start",
             *("hard_cut" for _ in persisted_baseline_plan.segments[1:]),
         ]
-        assert persisted_baseline_plan.schema_version == "cre-creative-plan-v2"
+        assert persisted_baseline_plan.schema_version == "cre-creative-plan-v3"
         assert persisted_baseline_plan.audio_policy == "explicit_segment_audio"
         assert all(
             segment.audio.mode == "source_audio"
@@ -553,7 +553,7 @@ def test_synthetic_cre_editing_baseline(tmp_path, monkeypatch, record_property):
             render_result["rendererSettings"]["audioPolicy"]
             == persisted_baseline_plan.audio_policy
         )
-        assert render_result["planVersion"] == "cre-creative-plan-v2"
+        assert render_result["planVersion"] == "cre-creative-plan-v3"
         assert render_result["audioValidation"]["status"] == "PASSED"
         assert render_result["audioValidation"]["outputPresent"] is True
         assert render_result["audioValidation"]["decodedPeakDbfs"] <= -1.0
@@ -974,7 +974,10 @@ def test_synthetic_cre_editing_baseline(tmp_path, monkeypatch, record_property):
         assert output_metadata["video_fps"] == pytest.approx(30)
         assert output_metadata["has_video"] is True
         assert output_metadata["has_audio"] is True
-        assert output_metadata["duration_seconds"] == pytest.approx(20, abs=0.75)
+        assert output_metadata["duration_seconds"] == pytest.approx(
+            baseline_projection["durationSeconds"],
+            abs=0.75,
+        )
         assert Path(report["isolation"]["database"]).parent == isolated_root
         assert Path(report["isolation"]["managedStorage"]).parent == isolated_root
         record_property("cre_edit_baseline", json.dumps(report, sort_keys=True))

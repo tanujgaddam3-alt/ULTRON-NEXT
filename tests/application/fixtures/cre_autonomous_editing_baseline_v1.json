@@ -6,58 +6,54 @@
   },
   "planDecisions": {
     "singleSource": {
-      "segmentCount": 6,
-      "durationSeconds": 15.0,
+      "segmentCount": 4,
+      "durationSeconds": 8.0,
       "sourceCounts": {
-        "source-a": 6
+        "source-a": 4
       },
       "segments": [
-        ["source-a", 0.0, 2.5],
-        ["source-a", 0.0, 2.5],
-        ["source-a", 0.0, 2.5],
-        ["source-a", 0.0, 2.5],
-        ["source-a", 0.0, 2.5],
-        ["source-a", 0.0, 2.5]
+        ["source-a", 0.0, 2.0],
+        ["source-a", 4.0, 6.0],
+        ["source-a", 6.0, 8.0],
+        ["source-a", 2.0, 4.0]
       ]
     },
     "twoSourceBaseline": {
       "segmentCount": 6,
-      "durationSeconds": 20.0,
+      "durationSeconds": 16.0,
       "sourceCounts": {
         "source-a": 3,
         "source-b": 3
       },
       "segments": [
-        ["source-a", 0.0, 3.333],
-        ["source-b", 0.0, 3.333],
-        ["source-a", 0.0, 3.333],
-        ["source-b", 2.333, 5.667],
-        ["source-a", 0.0, 3.333],
-        ["source-b", 4.667, 8.0]
+        ["source-a", 0.0, 2.667],
+        ["source-b", 0.0, 2.667],
+        ["source-a", 2.667, 5.333],
+        ["source-b", 2.667, 5.333],
+        ["source-a", 5.333, 8.0],
+        ["source-b", 5.333, 8.0]
       ]
     },
     "twoSourceRevision": {
-      "segmentCount": 14,
-      "durationSeconds": 20.0,
+      "segmentCount": 12,
+      "durationSeconds": 16.0,
       "sourceCounts": {
-        "source-a": 7,
-        "source-b": 7
+        "source-a": 6,
+        "source-b": 6
       },
       "segments": [
-        ["source-a", 0.0, 1.429],
-        ["source-b", 0.0, 1.429],
-        ["source-a", 4.0, 5.429],
-        ["source-b", 2.0, 3.429],
-        ["source-a", 6.0, 7.429],
-        ["source-b", 4.0, 5.429],
-        ["source-a", 0.0, 1.429],
-        ["source-b", 6.0, 7.429],
-        ["source-a", 4.0, 5.429],
-        ["source-b", 4.0, 5.429],
-        ["source-a", 6.0, 7.429],
-        ["source-b", 6.0, 7.429],
-        ["source-a", 6.0, 7.429],
-        ["source-b", 6.0, 7.429]
+        ["source-a", 0.0, 1.333],
+        ["source-b", 0.0, 1.333],
+        ["source-a", 1.333, 2.667],
+        ["source-b", 1.333, 2.667],
+        ["source-a", 2.667, 4.0],
+        ["source-b", 2.667, 4.0],
+        ["source-a", 4.0, 5.333],
+        ["source-b", 4.0, 5.333],
+        ["source-a", 5.333, 6.667],
+        ["source-b", 5.333, 6.667],
+        ["source-a", 6.667, 8.0],
+        ["source-b", 6.667, 8.0]
       ]
     }
   },

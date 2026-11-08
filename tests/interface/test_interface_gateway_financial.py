@@ -1,8 +1,12 @@
 import asyncio
 import json
+import threading
+import time
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
+
+import pytest
 
 from ultron.application.runtime.interface_gateway import InterfaceGateway
 import ultron.application.runtime.interface_gateway as gateway_module
@@ -353,6 +357,135 @@ def test_omega_refresh_does_not_make_requests_without_a_gateway_token(monkeypatc
     assert gateway._build_omega()["integration"]["authenticationState"] == "NOT_CONFIGURED"
     assert gateway._build_omega()["communicationTrace"] is None
     assert gateway._build_omega()["measuredAt"] is None
+
+
+def test_omega_background_refresh_keeps_websocket_requests_responsive_and_never_overlaps():
+    started = threading.Event()
+    release = threading.Event()
+    finished = threading.Event()
+    calls = []
+
+    gateway = make_gateway(None)
+
+    def slow_refresh():
+        calls.append(threading.get_ident())
+        started.set()
+        release.wait(timeout=2)
+        finished.set()
+
+    gateway._refresh_omega = slow_refresh
+
+    async def exercise():
+        gateway._schedule_omega_refresh()
+        assert await asyncio.to_thread(started.wait, 1)
+
+        websocket = FakeWebSocket()
+        before = time.monotonic()
+        await gateway.handle(websocket, {"action": "PING", "correlationId": "live"})
+        assert time.monotonic() - before < 0.1
+        assert websocket.messages[-1]["type"] == "PONG"
+
+        gateway._schedule_omega_refresh()
+        assert len(calls) == 1
+        release.set()
+        assert await asyncio.to_thread(finished.wait, 1)
+        await asyncio.sleep(0)
+        assert gateway._omega_refresh_task is None
+
+    try:
+        asyncio.run(exercise())
+    finally:
+        release.set()
+        gateway.operation_store.close()
+
+
+def test_authenticated_omega_subscription_schedules_poll_without_blocking():
+    authorizer = make_test_authenticator()
+    gateway = make_gateway(None, authorizer)
+    websocket = FakeWebSocket()
+    authenticate_test_websocket(authorizer, websocket)
+    started = threading.Event()
+    release = threading.Event()
+    finished = threading.Event()
+
+    def slow_refresh():
+        started.set()
+        release.wait(timeout=2)
+        finished.set()
+
+    gateway._refresh_omega = slow_refresh
+
+    async def exercise():
+        before = time.monotonic()
+        await gateway._handle_subscribe(
+            websocket,
+            {"channels": ["omega"], "correlationId": "subscribe"},
+        )
+        assert time.monotonic() - before < 0.1
+        assert await asyncio.to_thread(started.wait, 1)
+        assert gateway._omega_refresh_task is not None
+        release.set()
+        assert await asyncio.to_thread(finished.wait, 1)
+        for _ in range(10):
+            if gateway._omega_refresh_task is None:
+                break
+            await asyncio.sleep(0.01)
+        assert gateway._omega_refresh_task is None
+
+    try:
+        asyncio.run(exercise())
+    finally:
+        release.set()
+        gateway.operation_store.close()
+
+
+def test_omega_refresh_timeout_and_exception_do_not_stop_heartbeat(
+    monkeypatch,
+    caplog,
+):
+    started = threading.Event()
+    release = threading.Event()
+    finished = threading.Event()
+    gateway = make_gateway(None)
+    gateway.runtime.state = SimpleNamespace(cycle_count=0, running=True)
+    monkeypatch.setattr(gateway_module, "HEARTBEAT_INTERVAL", 0.01)
+    monkeypatch.setattr(gateway_module, "WORLD_REFRESH_INTERVAL", 3600.0)
+    monkeypatch.setattr(gateway_module, "OMEGA_REFRESH_TIMEOUT", 0.01)
+
+    def slow_refresh():
+        started.set()
+        release.wait(timeout=2)
+        finished.set()
+
+    gateway._refresh_omega = slow_refresh
+
+    async def exercise():
+        heartbeat = asyncio.create_task(gateway._heartbeat())
+        gateway._schedule_omega_refresh()
+        assert await asyncio.to_thread(started.wait, 1)
+        await asyncio.sleep(0.04)
+        assert heartbeat.done() is False
+        assert "component=omega" in caplog.text
+        assert "timed out" in caplog.text
+
+        gateway._schedule_omega_refresh()
+        release.set()
+        assert await asyncio.to_thread(finished.wait, 1)
+        await asyncio.sleep(0)
+        gateway._refresh_omega = lambda: (_ for _ in ()).throw(RuntimeError("private"))
+        gateway._schedule_omega_refresh()
+        await asyncio.sleep(0.02)
+        assert heartbeat.done() is False
+        assert "component=omega exception_type=RuntimeError" in caplog.text
+        heartbeat.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await heartbeat
+
+    try:
+        asyncio.run(exercise())
+    finally:
+        release.set()
+        gateway.operation_store.close()
 
 
 def test_omega_failed_refresh_marks_cached_state_degraded(monkeypatch):

@@ -505,6 +505,7 @@ def test_output_audit_failure_cleans_output_and_restart_marks_uncertain(
         _run_job(h, job.job_id)
     assert not (storage._root / "outputs" / f"output-{job.job_id}").exists()
     assert h.store.get_processing_job(job.job_id).state == ProcessingJobState.RUNNING
+    h.store._connection.execute("DROP TRIGGER fail_processing_terminal_audit")
 
     database = tmp_path / "content.db"
     h.close()

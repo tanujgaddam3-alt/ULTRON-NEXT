@@ -28,6 +28,7 @@ from ultron.application.content.publishing import (
 )
 from ultron.application.content.service import ContentRightsService
 from ultron.application.content.store import ContentStore, IdempotencyConflictError
+from tests.application.schema_test_utils import set_legacy_schema_version
 from ultron.domain.content import (
     ContentPackageVersion,
     ProcessingJobState,
@@ -996,9 +997,10 @@ def test_schema_six_database_migrates_additively_and_preserves_content(
             "content_publishing_jobs",
         ):
             connection.execute(f"DROP TABLE {table}")
-        connection.execute(
-            "UPDATE content_schema_meta SET schema_version = 6 WHERE singleton = 1"
-        )
+    set_legacy_schema_version(h.store, 7)
+    h.store._connection.execute(
+        "UPDATE content_schema_meta SET schema_version = 6 WHERE singleton = 1"
+    )
     database = h.store.database_identity
     h.store.close()
 
@@ -1008,7 +1010,7 @@ def test_schema_six_database_migrates_additively_and_preserves_content(
     assert migrated.get_clip_render(render.render_id) == render
     assert migrated._connection.execute(
         "SELECT schema_version FROM content_schema_meta WHERE singleton = 1"
-    ).fetchone()[0] == ContentStore.SCHEMA_VERSION
+    ).fetchone()[0] == ContentStore.LEGACY_BASE_SCHEMA_VERSION
     assert migrated._connection.execute(
         "SELECT COUNT(*) FROM content_publishing_jobs"
     ).fetchone()[0] == 0

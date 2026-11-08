@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from contextlib import redirect_stdout
 from io import StringIO
@@ -25,11 +26,16 @@ from ultron_service_manager import (  # noqa: E402
     Service,
     ServiceManager,
     StartupFailure,
+    _gateway_lifecycle_state_for_health,
     _probe_voice,
     request_gateway_control_operation,
     request_gateway_restart,
 )
 import ultron_service_manager as service_manager_module
+from ultron.application.runtime.local_auth_helper import (
+    PasswordVerifier,
+    write_password_verifier,
+)
 from ultron.application.runtime.system_intelligence import request_helper_restart
 
 PYTHON = sys.executable
@@ -99,8 +105,88 @@ class ServiceManagerTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
         self.state = self.root / "state"
+        self.managers = []
+        self.auth_config = self.root / "protected-auth"
+        self.auth_config.mkdir(mode=0o700)
+        self.auth_config.joinpath("interface-token").write_text(
+            "T" * 43 + "\n",
+            encoding="ascii",
+        )
+        self.auth_config.joinpath("interface-token").chmod(0o600)
+        write_password_verifier(
+            "test-only-manager-passphrase",
+            self.auth_config / "interface-unlock.json",
+        )
+
+        def fixture_writer_evidence(manager):
+            state = manager._read_state()
+            quiesce = state.get("gatewayQuiesce", {})
+            quiesce_id = (
+                quiesce.get("operationId")
+                if isinstance(quiesce, dict)
+                else None
+            )
+            return {
+                "generatedAt": time.strftime(
+                    "%Y-%m-%dT%H:%M:%SZ", time.gmtime()
+                ),
+                "collectionStatus": "COMPLETE",
+                "overallStatus": "NOT VERIFIED",
+                "quiescenceStatus": "NOT VERIFIED",
+                "databaseTarget": {
+                    "configuredBySource": str(
+                        (manager.root / "data" / "ultron_cre.db").resolve()
+                    ),
+                    "accessed": False,
+                },
+                "configuredServices": [],
+                "knownWriterInventory": {
+                    "status": "CHECKED",
+                    "knownEntryPoints": [],
+                    "limitations": [],
+                },
+                "managerState": {
+                    "status": "CHECKED",
+                    "services": [],
+                    "gatewayQuiesce": "QUIESCED",
+                    "gatewayQuiesceOperationId": quiesce_id,
+                },
+                "processSnapshot": {
+                    "status": "CHECKED",
+                    "auditSource": "TEST_FIXTURE",
+                    "totalProcesses": 0,
+                    "inspectedProcesses": 0,
+                    "processRaceCount": 0,
+                    "descriptorRaceCount": 0,
+                    "unreadableProcessCount": 0,
+                    "databaseDescriptorMatches": [],
+                    "snapshotOnly": True,
+                },
+                "restartPolicies": {
+                    "status": "CHECKED",
+                    "checkedRoots": [],
+                    "unavailableRoots": [],
+                    "systemdServiceFiles": [],
+                },
+                "scheduledAndExternalSources": {
+                    "status": "NOT_CHECKED",
+                    "sources": [],
+                    "otherSupervisors": "NOT_CHECKED",
+                },
+                "limitations": ["TEST FIXTURE ONLY"],
+            }
+
+        self._writer_evidence_patch = patch.object(
+            ServiceManager,
+            "_collect_cre_writer_evidence",
+            fixture_writer_evidence,
+        )
+        self._writer_evidence_patch.start()
+        self.addCleanup(self._writer_evidence_patch.stop)
 
     def tearDown(self) -> None:
+        for manager in self.managers:
+            manager.release_manager_lease()
         self.temporary.cleanup()
 
     def operator_attest(self, manager, quiesce_id, *, operation_id="writer-attestation"):
@@ -117,6 +203,8 @@ class ServiceManagerTests(unittest.TestCase):
             "gatewayQuiesce": {
                 "status": "QUIESCED",
                 "operationId": quiesce_id,
+                "gatewayStatus": "STOPPED",
+                "process": {"pid": 2_000_000_000, "start_ticks": 1},
                 "writersStatus": "NOT_VERIFIED",
             },
         }
@@ -124,19 +212,336 @@ class ServiceManagerTests(unittest.TestCase):
         self.state.joinpath("services.json").chmod(0o600)
 
     def manager(self, services, *, timeout=2.0, secrets=()):
-        return ServiceManager(
+        manager = ServiceManager(
             self.root,
             state_directory=self.state,
             services=services,
             readiness_timeout=timeout,
             poll_interval=0.05,
             extra_secrets=secrets,
+            auth_config_directory=self.auth_config,
             validate_project=False,
         )
+        self.managers.append(manager)
+        return manager
+
+    def test_authentication_fixtures_are_isolated_and_owner_only(self):
+        manager = self.manager([])
+        self.assertTrue(self.auth_config.is_relative_to(self.root))
+        self.assertEqual(stat.S_IMODE(self.auth_config.stat().st_mode), 0o700)
+        for name in ("interface-token", "interface-unlock.json"):
+            self.assertEqual(
+                stat.S_IMODE((self.auth_config / name).stat().st_mode),
+                0o600,
+            )
+        self.assertEqual(manager._load_gateway_token(), "T" * 43)
+        manager._check_auth_prerequisites()
+        self.assertTrue(
+            PasswordVerifier(self.auth_config / "interface-unlock.json").verify(
+                "test-only-manager-passphrase"
+            )
+        )
+
+    def recovery_manager(self, *, port=None, hold_lease=True):
+        gateway = fixture_service(
+            self.root,
+            "gateway",
+            port or free_port(),
+            marker="gateway-quiescence-recovery",
+        )
+        manager = self.manager([gateway])
+        if hold_lease:
+            manager.acquire_manager_lease()
+        return manager
+
+    def test_gateway_lifecycle_rejects_illegal_transitions_and_is_idempotent(self):
+        manager = self.manager([])
+        state = {"version": 1, "services": {}}
+
+        manager._transition_gateway_lifecycle(
+            state, "STARTING", "isolated startup", operation_id="offline-start"
+        )
+        manager._transition_gateway_lifecycle(
+            state, "RUNNING", "isolated readiness verified", operation_id="offline-start"
+        )
+        history_before = list(state["gatewayLifecycle"]["history"])
+        manager._transition_gateway_lifecycle(
+            state, "RUNNING", "repeat observation", operation_id="offline-start"
+        )
+
+        self.assertEqual(state["gatewayLifecycle"]["state"], "RUNNING")
+        self.assertEqual(state["gatewayLifecycle"]["history"], history_before)
+        with self.assertRaisesRegex(StartupFailure, "Illegal gateway lifecycle transition"):
+            manager._transition_gateway_lifecycle(
+                state, "RECOVERING", "recovery without quiescence"
+            )
+
+    def test_gateway_lifecycle_distinguishes_degraded_stopping_and_operator_required(self):
+        manager = self.manager([])
+        state = {"version": 1, "services": {}}
+        manager._transition_gateway_lifecycle(state, "STARTING", "startup")
+        manager._transition_gateway_lifecycle(
+            state, "DEGRADED", "core ready while CRE is unavailable"
+        )
+        manager._transition_gateway_lifecycle(state, "QUIESCING", "quiesce requested")
+        manager._transition_gateway_lifecycle(state, "STOPPING", "gateway signal sent")
+        manager._transition_gateway_lifecycle(
+            state, "NEEDS_OPERATOR", "listener ownership could not be verified"
+        )
+
+        self.assertEqual(state["gatewayLifecycle"]["state"], "NEEDS_OPERATOR")
+        self.assertEqual(
+            [entry["state"] for entry in state["gatewayLifecycle"]["history"]],
+            ["STARTING", "DEGRADED", "QUIESCING", "STOPPING", "NEEDS_OPERATOR"],
+        )
+        self.assertEqual(
+            _gateway_lifecycle_state_for_health(
+                "gateway core ready (authentication required; CRE unavailable)"
+            ),
+            "DEGRADED",
+        )
+        self.assertEqual(
+            _gateway_lifecycle_state_for_health(
+                "gateway core ready (authentication required; CRE available)"
+            ),
+            "RUNNING",
+        )
+
+    def test_needs_operator_lifecycle_blocks_automatic_start_with_operation_context(self):
+        manager = self.recovery_manager()
+        manager._write_state({
+            "version": 1,
+            "services": {},
+            "gatewayQuiesce": {
+                "status": "NEEDS_OPERATOR",
+                "operationId": "quiesce-original",
+                "writersStatus": "NOT_VERIFIED",
+            },
+            "gatewayLifecycle": {
+                "state": "NEEDS_OPERATOR",
+                "updatedAt": time.time(),
+                "reason": "interrupted gateway stop",
+                "operationId": "quiesce-original",
+                "history": [],
+            },
+        })
+        try:
+            with self.assertRaisesRegex(
+                StartupFailure,
+                "quiesce operation quiesce-original requires operator review",
+            ):
+                manager.start_all()
+            self.assertEqual(manager.owned_processes(), {})
+        finally:
+            manager.release_manager_lease()
+
+    def test_control_operation_id_reuse_across_operations_is_rejected(self):
+        manager = self.recovery_manager()
+        manager._write_state({
+            "version": 1,
+            "services": {},
+            "controlOperations": {
+                "original-quiesce": {
+                    "operation": "quiesce-gateway",
+                    "status": "SUCCEEDED",
+                    "events": [],
+                }
+            },
+        })
+
+        auth_result = manager._restart_auth("original-quiesce")
+        gateway_result = manager._restart_gateway("original-quiesce")
+
+        self.assertEqual(auth_result["status"], "OPERATION_ID_CONFLICT")
+        self.assertIn("quiesce-gateway", auth_result["detail"])
+        self.assertEqual(gateway_result["status"], "OPERATION_ID_CONFLICT")
+        self.assertIn("quiesce-gateway", gateway_result["detail"])
+
+    def test_control_operation_ids_remain_reserved_after_many_transactions(self):
+        manager = self.recovery_manager()
+        operations = {
+            "first-operation": {
+                "operation": "restart-auth",
+                "status": "SUCCEEDED",
+                "events": [],
+            }
+        }
+        for index in range(101):
+            operation_id = f"operation-{index}"
+            operations[operation_id] = {
+                "operation": "restart-auth",
+                "status": "SUCCEEDED",
+                "events": [],
+            }
+        state = {"version": 1, "services": {}, "controlOperations": operations}
+
+        manager._control_transition(
+            state,
+            "operation-100",
+            "SUCCEEDED",
+            "Idempotent completion replay.",
+        )
+
+        self.assertIn("first-operation", state["controlOperations"])
+        self.assertIn("operation-0", state["controlOperations"])
+        self.assertEqual(
+            state["controlOperations"]["first-operation"]["operation"],
+            "restart-auth",
+        )
+
+    def test_manager_persists_degraded_cre_without_disabling_gateway(self):
+        health = "gateway core ready (authentication required; CRE unavailable)"
+        gateway = fixture_service(
+            self.root,
+            "gateway",
+            free_port(),
+            marker="degraded-cre-gateway",
+            probe=lambda: health,
+        )
+        manager = self.manager([gateway], timeout=1.5)
+        manager.acquire_manager_lease()
+        try:
+            statuses = manager.start_all()
+            state = json.loads((self.state / "services.json").read_text())
+
+            self.assertIn("gateway", manager.owned_processes())
+            self.assertIn("started and ready", statuses["gateway"])
+            self.assertEqual(state["gatewayLifecycle"]["state"], "DEGRADED")
+            self.assertIn("CRE initialization remains unavailable", state["gatewayLifecycle"]["reason"])
+        finally:
+            manager.stop_managed()
+            manager.release_manager_lease()
+
+    def test_gateway_startup_failure_is_persisted_as_failed(self):
+        gateway_port = free_port()
+        gateway = fixture_service(
+            self.root,
+            "gateway",
+            gateway_port,
+            marker="failed-gateway-fixture",
+            command=(PYTHON, "-c", "raise SystemExit(17)"),
+        )
+        manager = self.manager([gateway], timeout=0.5)
+        manager.acquire_manager_lease()
+        try:
+            with self.assertRaises(StartupFailure):
+                manager.start_all()
+            state = json.loads((self.state / "services.json").read_text())
+            self.assertEqual(state["gatewayLifecycle"]["state"], "FAILED")
+            self.assertTrue(state["gatewayLifecycle"]["reason"])
+            self.assertNotIn("gateway", state["services"])
+        finally:
+            manager.release_manager_lease()
+
+    def test_failed_gateway_lifecycle_blocks_automatic_live_start(self):
+        manager = self.recovery_manager()
+        manager._write_state({
+            "version": 1,
+            "services": {},
+            "gatewayLifecycle": {
+                "state": "FAILED",
+                "updatedAt": time.time(),
+                "reason": "previous startup failed",
+                "operationId": "failed-start",
+                "history": [],
+            },
+        })
+        try:
+            with self.assertRaisesRegex(StartupFailure, "manager-controlled recovery"):
+                manager.start_all()
+            self.assertEqual(manager.owned_processes(), {})
+        finally:
+            manager.release_manager_lease()
+
+    def test_gateway_attestation_requires_current_manager_lease(self):
+        self.write_quiesced_state("quiesce-current")
+        manager = self.recovery_manager(hold_lease=False)
+
+        result = self.operator_attest(manager, "quiesce-current")
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["status"], "NOT_MANAGER_OWNED")
+        self.assertEqual(result["managerOwnershipStatus"], "NOT_VERIFIED")
+        state = json.loads((self.state / "services.json").read_text())
+        self.assertNotIn("writerAttestation", state["gatewayQuiesce"])
+
+    def test_gateway_attestation_rejects_original_gateway_identity_still_active(self):
+        self.write_quiesced_state("quiesce-current")
+        manager = self.recovery_manager()
+        proc = service_manager_module._read_proc(os.getpid())
+        self.assertIsNotNone(proc)
+        state = json.loads((self.state / "services.json").read_text())
+        state["gatewayQuiesce"]["process"] = {
+            "pid": os.getpid(),
+            "start_ticks": proc[4],
+        }
+        manager._write_state(state)
+
+        result = self.operator_attest(manager, "quiesce-current")
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["status"], "GATEWAY_PROCESS_ACTIVE")
+        self.assertNotIn(
+            "writerAttestation",
+            json.loads((self.state / "services.json").read_text())["gatewayQuiesce"],
+        )
+
+    def test_gateway_attestation_accepts_reused_pid_only_after_start_tick_mismatch(self):
+        self.write_quiesced_state("quiesce-current")
+        manager = self.recovery_manager()
+        proc = service_manager_module._read_proc(os.getpid())
+        self.assertIsNotNone(proc)
+        state = json.loads((self.state / "services.json").read_text())
+        state["gatewayQuiesce"]["process"] = {
+            "pid": os.getpid(),
+            "start_ticks": proc[4] + 1,
+        }
+        manager._write_state(state)
+
+        result = self.operator_attest(manager, "quiesce-current")
+
+        self.assertTrue(result["success"], result)
+        persisted = json.loads((self.state / "services.json").read_text())
+        self.assertEqual(
+            persisted["gatewayQuiesce"]["gatewayRecoveryEvidence"][
+                "gatewayProcessStatus"
+            ],
+            "ORIGINAL_PROCESS_EXITED_PID_REUSED",
+        )
+
+    def test_gateway_attestation_rejects_listener_conflict(self):
+        self.write_quiesced_state("quiesce-current")
+        manager = self.recovery_manager()
+
+        with patch.object(
+            manager,
+            "_listener_details",
+            return_value=[("127.0.0.1", [os.getpid()])],
+        ):
+            result = self.operator_attest(manager, "quiesce-current")
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["status"], "LISTENER_CONFLICT")
+        state = json.loads((self.state / "services.json").read_text())
+        self.assertNotIn("writerAttestation", state["gatewayQuiesce"])
+
+    def test_resume_rejects_missing_or_changed_recovery_evidence(self):
+        self.write_quiesced_state("quiesce-current")
+        manager = self.recovery_manager()
+        self.assertTrue(self.operator_attest(manager, "quiesce-current")["success"])
+        state = json.loads((self.state / "services.json").read_text())
+        state["gatewayQuiesce"]["gatewayRecoveryEvidence"]["listenerStatus"] = "CONFLICT"
+        manager._write_state(state)
+
+        result = manager._resume_gateway("resume-with-stale-recovery-evidence")
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["status"], "REFUSED_RECOVERY_EVIDENCE")
+        self.assertNotIn("gateway", manager.owned_processes())
 
     def test_operator_writer_attestation_workflow(self):
         self.write_quiesced_state("quiesce-current")
-        manager = self.manager([])
+        manager = self.recovery_manager()
         result = self.operator_attest(manager, "quiesce-current")
         self.assertTrue(result["success"], result)
         self.assertEqual(result["status"], "OPERATOR_ATTESTED")
@@ -144,10 +549,92 @@ class ServiceManagerTests(unittest.TestCase):
         persisted = json.loads((self.state / "services.json").read_text())
         self.assertEqual(persisted["gatewayQuiesce"]["writersStatus"], "OPERATOR_ATTESTED")
         self.assertEqual(persisted["gatewayQuiesce"]["writerAttestationSource"], "OPERATOR")
+        evidence = persisted["gatewayQuiesce"]["writerEvidence"]
+        self.assertEqual(evidence["status"], "COLLECTION_COMPLETE")
+        self.assertEqual(evidence["quiesceOperationId"], "quiesce-current")
+        self.assertEqual(len(evidence["reportFingerprint"]), 64)
+        self.assertEqual(len(evidence["comparisonFingerprint"]), 64)
+        self.assertEqual(
+            persisted["gatewayQuiesce"]["gatewayRecoveryEvidence"]["status"],
+            "VERIFIED",
+        )
+        self.assertEqual(
+            persisted["gatewayQuiesce"]["gatewayRecoveryEvidence"]["managerOwnershipStatus"],
+            "HELD_BY_THIS_MANAGER",
+        )
+
+    def test_resume_rejects_tampered_persisted_writer_evidence(self):
+        self.write_quiesced_state("quiesce-current")
+        manager = self.recovery_manager()
+        result = self.operator_attest(manager, "quiesce-current")
+        self.assertTrue(result["success"], result)
+
+        state = json.loads((self.state / "services.json").read_text())
+        state["gatewayQuiesce"]["writerEvidence"]["report"][
+            "knownWriterInventory"
+        ]["limitations"].append("tampered after attestation")
+        manager._write_state(state)
+
+        result = manager._resume_gateway("resume-tampered-writer-evidence")
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["status"], "REFUSED_WRITER_EVIDENCE")
+        self.assertNotIn("gateway", manager.owned_processes())
+
+    def test_resume_rejects_changed_fresh_writer_snapshot(self):
+        self.write_quiesced_state("quiesce-current")
+        manager = self.recovery_manager()
+        result = self.operator_attest(manager, "quiesce-current")
+        self.assertTrue(result["success"], result)
+
+        original_collect = manager._collect_cre_writer_evidence
+
+        def changed_snapshot():
+            report = original_collect()
+            report["knownWriterInventory"]["knownEntryPoints"].append({
+                "id": "unexpected-new-writer",
+                "kind": "runtime",
+                "source": "unexpected.py",
+                "evidenceStatus": "CHECKED",
+            })
+            return report
+
+        manager._collect_cre_writer_evidence = changed_snapshot
+
+        result = manager._resume_gateway("resume-changed-writer-evidence")
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["status"], "REFUSED_WRITER_EVIDENCE_CHANGED")
+        self.assertNotIn("gateway", manager.owned_processes())
+
+    def test_resume_rejects_fresh_database_descriptor_match(self):
+        self.write_quiesced_state("quiesce-current")
+        manager = self.recovery_manager()
+        result = self.operator_attest(manager, "quiesce-current")
+        self.assertTrue(result["success"], result)
+
+        original_collect = manager._collect_cre_writer_evidence
+
+        def active_writer_snapshot():
+            report = original_collect()
+            report["processSnapshot"]["databaseDescriptorMatches"] = [{
+                "pid": 4242,
+                "startTicks": 12345,
+                "targetKind": "database",
+            }]
+            return report
+
+        manager._collect_cre_writer_evidence = active_writer_snapshot
+
+        result = manager._resume_gateway("resume-with-active-writer")
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["status"], "REFUSED_ACTIVE_WRITER")
+        self.assertNotIn("gateway", manager.owned_processes())
 
     def test_operator_writer_attestation_rejects_invalid_or_stale_evidence(self):
         self.write_quiesced_state("quiesce-current")
-        manager = self.manager([])
+        manager = self.recovery_manager()
         cases = []
         valid = operator_writer_attestation("quiesce-current")
         cases.append({})
@@ -171,7 +658,7 @@ class ServiceManagerTests(unittest.TestCase):
 
     def test_direct_verified_state_is_not_an_operator_attestation_workflow(self):
         self.write_quiesced_state("quiesce-current")
-        manager = self.manager([])
+        manager = self.recovery_manager()
         state = json.loads((self.state / "services.json").read_text())
         state["gatewayQuiesce"]["writersStatus"] = "VERIFIED"
         manager._write_state(state)
@@ -181,9 +668,82 @@ class ServiceManagerTests(unittest.TestCase):
         persisted = json.loads((self.state / "services.json").read_text())
         self.assertEqual(persisted["gatewayQuiesce"]["writersStatus"], "VERIFIED")
 
+    def test_direct_attestation_fields_without_manager_audit_are_rejected(self):
+        self.write_quiesced_state("quiesce-current")
+        manager = self.recovery_manager()
+        state = json.loads((self.state / "services.json").read_text())
+        state["gatewayQuiesce"].update({
+            "writersStatus": "OPERATOR_ATTESTED",
+            "writerAttestationSource": "OPERATOR",
+            "writerAttestation": operator_writer_attestation("quiesce-current"),
+            "gatewayRecoveryEvidence": {
+                "status": "VERIFIED",
+                "quiesceOperationId": "quiesce-current",
+                "attestationOperationId": "direct-edit",
+                "managerOwnershipStatus": "HELD_BY_THIS_MANAGER",
+                "gatewayProcessStatus": "ORIGINAL_PROCESS_EXITED",
+                "listenerStatus": "NOT_LISTENING",
+            },
+        })
+        manager._write_state(state)
+
+        result = manager._resume_gateway("resume-without-attestation-audit")
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["status"], "REFUSED_WRITER_SAFETY")
+        self.assertNotIn("gateway", manager.owned_processes())
+
+    def test_resume_replay_preserves_operator_attestation_provenance(self):
+        self.write_quiesced_state("quiesce-current")
+        manager = self.recovery_manager()
+        attestation = operator_writer_attestation("quiesce-current")
+        self.assertTrue(manager._attest_gateway_writers("attestation-replay", attestation)["success"])
+        fingerprint = hashlib.sha256(
+            json.dumps(attestation, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        state = json.loads((self.state / "services.json").read_text())
+        state["gatewayQuiesce"]["resumeOperationId"] = "resume-replay"
+        attestation_transaction = state["controlOperations"]["attestation-replay"]
+        state["controlOperations"] = {
+            "attestation-replay": attestation_transaction,
+            "resume-replay": {
+                "operation": "resume-gateway",
+                "status": "SUCCEEDED",
+                "quiesceOperationId": "quiesce-current",
+                "writerAttestationFingerprint": fingerprint,
+                "writersStatus": "OPERATOR_ATTESTED",
+                "writerAttestationSource": "OPERATOR",
+                "attestationOperationId": "attestation-replay",
+                "writerEvidenceStatus": "COMPLETE",
+                "writerEvidenceFingerprint": attestation_transaction[
+                    "writerEvidenceFingerprint"
+                ],
+                "writerEvidenceComparisonFingerprint": attestation_transaction[
+                    "writerEvidenceComparisonFingerprint"
+                ],
+                "events": [{"detail": "Gateway resumed and verified."}],
+            }
+        }
+        manager._write_state(state)
+
+        replay = manager._resume_gateway("resume-replay")
+
+        self.assertTrue(replay["success"])
+        self.assertEqual(replay["writersStatus"], "OPERATOR_ATTESTED")
+        self.assertEqual(replay["writerAttestationSource"], "OPERATOR")
+
+        state = json.loads((self.state / "services.json").read_text())
+        changed = dict(state["gatewayQuiesce"]["writerAttestation"])
+        changed["operator"] = "different-operator"
+        state["gatewayQuiesce"]["writerAttestation"] = changed
+        manager._write_state(state)
+        replay = manager._resume_gateway("resume-replay")
+        self.assertFalse(replay["success"])
+        self.assertEqual(replay["status"], "STALE_CONTROL_PROVENANCE")
+
     def test_attestation_replay_rejects_changed_evidence(self):
         self.write_quiesced_state("quiesce-current")
-        manager = self.manager([])
+        manager = self.recovery_manager()
         attestation = operator_writer_attestation("quiesce-current")
         self.assertTrue(manager._attest_gateway_writers("attestation-replay", attestation)["success"])
         changed = dict(attestation)
@@ -194,7 +754,7 @@ class ServiceManagerTests(unittest.TestCase):
 
     def test_attestation_invalidates_when_quiesce_operation_changes(self):
         self.write_quiesced_state("quiesce-current")
-        manager = self.manager([])
+        manager = self.recovery_manager()
         self.assertTrue(self.operator_attest(manager, "quiesce-current")["success"])
         state = json.loads((self.state / "services.json").read_text())
         state["gatewayQuiesce"]["operationId"] = "quiesce-new"
@@ -238,6 +798,7 @@ class ServiceManagerTests(unittest.TestCase):
                         services=services,
                         readiness_timeout=2,
                         poll_interval=0.02,
+                        auth_config_directory=self.auth_config,
                         validate_project=False,
                     )
                     manager.acquire_manager_lease()
@@ -274,6 +835,7 @@ class ServiceManagerTests(unittest.TestCase):
                             self.root,
                             state_directory=state,
                             services=services,
+                            auth_config_directory=self.auth_config,
                             validate_project=False,
                         )
                         with self.assertRaisesRegex(
@@ -448,6 +1010,7 @@ class ServiceManagerTests(unittest.TestCase):
                     services=[service],
                     readiness_timeout=2,
                     poll_interval=0.02,
+                    auth_config_directory=self.auth_config,
                     validate_project=False,
                 )
                 manager.acquire_manager_lease()
@@ -990,6 +1553,10 @@ class ServiceManagerTests(unittest.TestCase):
                     environment["ULTRON_EXECUTION_BACKEND"],
                     "simulation",
                 )
+                self.assertEqual(
+                    environment["ULTRON_RUNTIME_ID"],
+                    "ultron-default",
+                )
             with patch.dict(
                 os.environ,
                 {"ULTRON_EXECUTION_BACKEND": "paper"},
@@ -997,6 +1564,43 @@ class ServiceManagerTests(unittest.TestCase):
             ):
                 environment = manager._environment_for(gateway)
                 self.assertEqual(environment["ULTRON_EXECUTION_BACKEND"], "paper")
+                self.assertEqual(
+                    environment["ULTRON_RUNTIME_ID"],
+                    "ultron-default",
+                )
+
+    def test_gateway_manager_configuration_records_and_validates_runtime_identity(self):
+        gateway = Service(
+            "gateway",
+            "127.0.0.1",
+            free_port(),
+            ("gateway-fixture",),
+            self.root,
+            lambda: None,
+            lambda _arguments: False,
+        )
+        manager = self.manager([gateway])
+        with patch.object(manager, "_load_gateway_token", return_value="test-token"):
+            with patch.dict(os.environ, {"ULTRON_RUNTIME_ID": "candidate-v10"}, clear=True):
+                environment = manager._environment_for(gateway)
+                self.assertEqual(environment["ULTRON_RUNTIME_ID"], "candidate-v10")
+                with patch.object(
+                    service_manager_module,
+                    "_read_proc",
+                    return_value=(
+                        Path("/usr/bin/python"),
+                        self.root,
+                        ("gateway-fixture",),
+                        123,
+                        456,
+                    ),
+                ):
+                    record = manager._record_for(gateway, 123)
+                self.assertEqual(record["runtime_id"], "candidate-v10")
+
+            with patch.dict(os.environ, {"ULTRON_RUNTIME_ID": "../candidate"}, clear=True):
+                with self.assertRaisesRegex(StartupFailure, "ULTRON_RUNTIME_ID is invalid"):
+                    manager._environment_for(gateway)
 
     def test_gateway_inherits_explicit_cre_database_path(self):
         gateway = Service(
@@ -1023,8 +1627,7 @@ class ServiceManagerTests(unittest.TestCase):
         )
 
     def test_gateway_loads_owner_only_cre_runtime_config_and_redacts_reviewer_token(self):
-        config_directory = self.root / ".config" / "ultron"
-        config_directory.mkdir(parents=True, mode=0o700)
+        config_directory = self.auth_config
         config_path = config_directory / "cre-runtime.json"
         reviewer_token = "R" * 43
         config_path.write_text(
@@ -1048,15 +1651,14 @@ class ServiceManagerTests(unittest.TestCase):
             lambda _arguments: False,
         )
         manager = self.manager([gateway])
-        with patch("pathlib.Path.home", return_value=self.root):
+        with patch.object(manager, "_load_gateway_token", return_value="G" * 43):
+            environment = manager._environment_for(gateway)
+        with patch.dict(
+            os.environ,
+            {"ULTRON_CRE_FASTER_WHISPER_MODEL": "/environment/model"},
+        ):
             with patch.object(manager, "_load_gateway_token", return_value="G" * 43):
-                environment = manager._environment_for(gateway)
-            with patch.dict(
-                os.environ,
-                {"ULTRON_CRE_FASTER_WHISPER_MODEL": "/environment/model"},
-            ):
-                with patch.object(manager, "_load_gateway_token", return_value="G" * 43):
-                    environment_override = manager._environment_for(gateway)
+                environment_override = manager._environment_for(gateway)
 
         self.assertEqual(
             environment["ULTRON_CRE_FASTER_WHISPER_MODEL"],
@@ -1080,8 +1682,7 @@ class ServiceManagerTests(unittest.TestCase):
         )
 
     def test_gateway_rejects_insecure_or_incomplete_cre_runtime_config(self):
-        config_directory = self.root / ".config" / "ultron"
-        config_directory.mkdir(parents=True, mode=0o700)
+        config_directory = self.auth_config
         config_path = config_directory / "cre-runtime.json"
         config_path.write_text(
             json.dumps({"ULTRON_INTERFACE_CRE_REVIEWER_TOKEN": "R" * 43}),
@@ -1098,22 +1699,21 @@ class ServiceManagerTests(unittest.TestCase):
             lambda _arguments: False,
         )
         manager = self.manager([gateway])
-        with patch("pathlib.Path.home", return_value=self.root):
-            with self.assertRaises(StartupFailure):
-                manager._load_cre_runtime_config()
+        with self.assertRaises(StartupFailure):
+            manager._load_cre_runtime_config()
 
-            config_path.write_text(
-                json.dumps(
-                    {
-                        "ULTRON_INTERFACE_CRE_REVIEWER_PRINCIPAL": "rights-reviewer",
-                        "ULTRON_INTERFACE_CRE_REVIEWER_TOKEN": "R" * 43,
-                    }
-                ),
-                encoding="utf-8",
-            )
-            config_path.chmod(0o644)
-            with self.assertRaises(StartupFailure):
-                manager._load_cre_runtime_config()
+        config_path.write_text(
+            json.dumps(
+                {
+                    "ULTRON_INTERFACE_CRE_REVIEWER_PRINCIPAL": "rights-reviewer",
+                    "ULTRON_INTERFACE_CRE_REVIEWER_TOKEN": "R" * 43,
+                }
+            ),
+            encoding="utf-8",
+        )
+        config_path.chmod(0o644)
+        with self.assertRaises(StartupFailure):
+            manager._load_cre_runtime_config()
 
     def test_launcher_sigint_gracefully_stops_only_its_child(self):
         port = free_port()
@@ -1125,9 +1725,13 @@ class ServiceManagerTests(unittest.TestCase):
             import sys
             from pathlib import Path
             sys.path.insert(0, {str(SCRIPTS)!r})
-            from ultron_service_manager import Service, ServiceManager
+            from ultron_service_manager import (
+                Service, ServiceManager, _configure_manager_signal_policy,
+            )
+            _configure_manager_signal_policy()
             root = Path({str(self.root)!r})
             state_directory = Path({str(state_directory)!r})
+            auth_config_directory = Path({str(self.auth_config)!r})
             port = {port}
             command = {list(service.command)!r}
             def probe():
@@ -1138,7 +1742,8 @@ class ServiceManagerTests(unittest.TestCase):
             item = Service('fixture', '127.0.0.1', port, tuple(command), root, probe, identity)
             manager = ServiceManager(
                 root, state_directory=state_directory, services=[item],
-                readiness_timeout=2, poll_interval=.05, validate_project=False,
+                readiness_timeout=2, poll_interval=.05,
+                auth_config_directory=auth_config_directory, validate_project=False,
             )
             manager.start_all()
             print('READY', flush=True)
@@ -1155,6 +1760,11 @@ class ServiceManagerTests(unittest.TestCase):
         )
         try:
             self.assertEqual(process.stdout.readline().strip(), "READY")
+            process.send_signal(signal.SIGHUP)
+            time.sleep(0.1)
+            self.assertIsNone(process.poll(), "terminal hangup stopped the supervisor")
+            with socket.create_connection(("127.0.0.1", port), timeout=0.2):
+                pass
             process.send_signal(signal.SIGINT)
             self.assertEqual(process.wait(timeout=5), 0)
             state = json.loads((state_directory / "services.json").read_text())
@@ -1163,6 +1773,80 @@ class ServiceManagerTests(unittest.TestCase):
             if process.poll() is None:
                 process.kill()
                 process.wait(timeout=2)
+
+    def test_stop_action_requests_graceful_shutdown_from_existing_supervisor(self):
+        port = free_port()
+        gateway = fixture_service(
+            self.root, "gateway", port, marker="controlled-stop-gateway"
+        )
+        manager = self.manager([gateway])
+        manager.acquire_manager_lease()
+        try:
+            manager.start_all()
+            process = manager._processes["gateway"]
+            manager.start_control_channel()
+            supervisor = threading.Thread(target=manager.supervise, daemon=True)
+            supervisor.start()
+
+            result = request_gateway_control_operation(
+                self.state, "stop-stack", "controlled-stack-stop"
+            )
+
+            self.assertTrue(result["success"], result)
+            self.assertEqual(result["status"], "STOPPED")
+            supervisor.join(timeout=3)
+            self.assertFalse(supervisor.is_alive())
+            self.assertIsNotNone(process.poll())
+            state = json.loads((self.state / "services.json").read_text())
+            self.assertEqual(state["services"], {})
+            self.assertEqual(state["gatewayLifecycle"]["state"], "STOPPED")
+            transaction = state["controlOperations"]["controlled-stack-stop"]
+            self.assertEqual(transaction["operation"], "stop-stack")
+            self.assertEqual(transaction["status"], "SUCCEEDED")
+            self.assertEqual(
+                manager._stop_stack("controlled-stack-stop"),
+                {
+                    "success": True,
+                    "operationId": "controlled-stack-stop",
+                    "status": "STOPPED",
+                    "services": transaction["services"],
+                    "detail": transaction["events"][-1]["detail"],
+                },
+            )
+            self.assertEqual(
+                manager._restart_gateway("controlled-stack-stop")["status"],
+                "OPERATION_ID_CONFLICT",
+            )
+        finally:
+            manager.close_control_channel()
+            manager.release_manager_lease()
+
+    def test_interrupted_stack_stop_remains_blocked_for_operator_reconciliation(self):
+        manager = self.manager([])
+        state = {
+            "version": 1,
+            "services": {},
+            "activeControlOperation": "interrupted-stack-stop",
+            "controlOperations": {
+                "interrupted-stack-stop": {
+                    "operation": "stop-stack",
+                    "service": "stack",
+                    "status": "STOPPING",
+                },
+            },
+        }
+
+        with self.assertRaisesRegex(StartupFailure, "unsupported or ambiguous"):
+            manager._recover_interrupted_control(state)
+
+        self.assertEqual(
+            state["controlOperations"]["interrupted-stack-stop"]["status"],
+            "STOPPING",
+        )
+        self.assertEqual(
+            state["activeControlOperation"],
+            "interrupted-stack-stop",
+        )
 
     def test_controlled_auth_restart_preserves_unrelated_process_identity_and_supervision(self):
         auth_port, gateway_port = free_port(), free_port()
@@ -1273,6 +1957,13 @@ class ServiceManagerTests(unittest.TestCase):
                 )
                 current = json.loads((self.state / "services.json").read_text())
                 self.assertNotEqual(current["services"]["gateway"]["pid"], old_gateway_pid)
+                replacement_pid = current["services"]["gateway"]["pid"]
+                replay = request_gateway_restart(
+                    self.state, "gateway-restart-test-1", timeout=15
+                )
+                self.assertTrue(replay["success"], replay)
+                current = json.loads((self.state / "services.json").read_text())
+                self.assertEqual(current["services"]["gateway"]["pid"], replacement_pid)
                 for name, old_record in unrelated_before.items():
                     self.assertEqual(current["services"][name], old_record)
                     self.assertEqual(
@@ -1283,6 +1974,25 @@ class ServiceManagerTests(unittest.TestCase):
                 self.assertEqual(transaction["service"], "gateway")
                 self.assertEqual(transaction["status"], "SUCCEEDED")
                 self.assertIsNone(current["activeControlOperation"])
+                self.assertEqual(current["gatewayLifecycle"]["state"], "RUNNING")
+                self.assertEqual(
+                    current["gatewayLifecycle"]["operationId"],
+                    "gateway-restart-test-1",
+                )
+                self.assertEqual(
+                    [
+                        event["state"]
+                        for event in current["gatewayLifecycle"]["history"]
+                        if event["operationId"] == "gateway-restart-test-1"
+                    ],
+                    [
+                        "QUIESCING",
+                        "STOPPING",
+                        "QUIESCED",
+                        "RECOVERING",
+                        "RUNNING",
+                    ],
+                )
                 manager.stop_managed()
                 supervisor.join(timeout=3)
                 self.assertFalse(supervisor.is_alive())
@@ -1378,6 +2088,15 @@ class ServiceManagerTests(unittest.TestCase):
                 state = json.loads((self.state / "services.json").read_text())
                 self.assertEqual(state["gatewayQuiesce"]["status"], "QUIESCED")
                 self.assertEqual(state["gatewayQuiesce"]["writersStatus"], "NOT_VERIFIED")
+                self.assertEqual(state["gatewayLifecycle"]["state"], "QUIESCED")
+                self.assertTrue(state["gatewayQuiesce"]["reason"])
+                repeated_quiesce = manager._quiesce_gateway(
+                    "gateway-quiesce-repeat"
+                )
+                self.assertTrue(repeated_quiesce["success"], repeated_quiesce)
+                self.assertEqual(
+                    repeated_quiesce["status"], "GATEWAY_STOPPED"
+                )
                 self.assertNotIn("gateway", state["services"])
                 self.assertEqual(
                     state["controlOperations"]["gateway-quiesce-test"]["status"],
@@ -1415,6 +2134,7 @@ class ServiceManagerTests(unittest.TestCase):
                 self.assertEqual(manager.owned_processes()["auth"], auth_pid)
                 state = json.loads((self.state / "services.json").read_text())
                 self.assertNotIn("gatewayQuiesce", state)
+                self.assertEqual(state["gatewayLifecycle"]["state"], "RUNNING")
                 self.assertEqual(state["services"]["gateway"]["pid"], manager.owned_processes()["gateway"])
                 manager.stop_managed()
                 supervisor.join(timeout=3)
@@ -1431,7 +2151,8 @@ class ServiceManagerTests(unittest.TestCase):
         manager = self.manager([gateway])
         manager.acquire_manager_lease()
         try:
-            manager.start_all()
+            with patch.object(manager, "_load_gateway_token", return_value="T" * 43):
+                manager.start_all()
             pid = manager.owned_processes()["gateway"]
             state_before = (self.state / "services.json").read_bytes()
 
@@ -1461,7 +2182,7 @@ class ServiceManagerTests(unittest.TestCase):
 
             self.assertEqual(status["stateStatus"], "AVAILABLE")
             self.assertEqual(
-                status["managerOwnershipStatus"], "NOT_VERIFIED"
+                status["managerOwnershipStatus"], "HELD_BY_THIS_MANAGER"
             )
             self.assertEqual(
                 status["services"]["gateway"],
@@ -1469,6 +2190,8 @@ class ServiceManagerTests(unittest.TestCase):
                     "identityStatus": "MATCH",
                     "listenerStatus": "OWNED_BY_RECORDED_PROCESS",
                     "healthProbe": "HEALTHY",
+                    "runtimeIdentityStatus": "VERIFIED",
+                    "runtimeId": "ultron-default",
                 },
             )
             self.assertEqual(
@@ -1482,6 +2205,47 @@ class ServiceManagerTests(unittest.TestCase):
             manager.stop_managed()
             manager.release_manager_lease()
 
+    def test_read_only_status_hides_runtime_identity_without_manager_ownership(self):
+        gateway = fixture_service(
+            self.root, "gateway", free_port(), marker="gateway-status-no-manager"
+        )
+        manager = self.manager([gateway])
+        manager._write_state({
+            "version": 1,
+            "services": {
+                "gateway": {
+                    "pid": os.getpid(),
+                    "start_ticks": 0,
+                    "runtime_id": "candidate-v10",
+                },
+            },
+        })
+
+        with (
+            patch.object(manager, "_process_matches", return_value=True),
+            patch.object(
+                manager,
+                "_listener_details",
+                return_value=[("127.0.0.1", [os.getpid()])],
+            ),
+            patch.object(
+                manager,
+                "_manager_ownership_status",
+                return_value="NOT_HELD",
+            ),
+            patch.object(manager, "_probe", return_value={"ready": True}),
+        ):
+            status = manager.read_only_status()
+
+        gateway_status = status["services"]["gateway"]
+        self.assertEqual(gateway_status["identityStatus"], "MATCH")
+        self.assertEqual(
+            gateway_status["listenerStatus"],
+            "OWNED_BY_RECORDED_PROCESS",
+        )
+        self.assertEqual(gateway_status["runtimeIdentityStatus"], "UNVERIFIED")
+        self.assertNotIn("runtimeId", gateway_status)
+
     def test_read_only_status_reports_stale_and_ambiguous_process_records(self):
         port = free_port()
         gateway = fixture_service(
@@ -1490,7 +2254,8 @@ class ServiceManagerTests(unittest.TestCase):
         manager = self.manager([gateway])
         manager.acquire_manager_lease()
         try:
-            manager.start_all()
+            with patch.object(manager, "_load_gateway_token", return_value="T" * 43):
+                manager.start_all()
             pid = manager.owned_processes()["gateway"]
             state = json.loads((self.state / "services.json").read_text())
 
@@ -1514,6 +2279,11 @@ class ServiceManagerTests(unittest.TestCase):
                 mismatched["services"]["gateway"]["healthProbe"],
                 "SKIPPED_IDENTITY_UNVERIFIED",
             )
+            self.assertEqual(
+                mismatched["services"]["gateway"]["runtimeIdentityStatus"],
+                "UNVERIFIED",
+            )
+            self.assertNotIn("runtimeId", mismatched["services"]["gateway"])
 
             state["services"]["gateway"]["start_ticks"] = "invalid"
             manager._write_state(state)
@@ -1559,7 +2329,8 @@ class ServiceManagerTests(unittest.TestCase):
         manager = self.manager([gateway])
         manager.acquire_manager_lease()
         try:
-            manager.start_all()
+            with patch.object(manager, "_load_gateway_token", return_value="T" * 43):
+                manager.start_all()
             pid = manager.owned_processes()["gateway"]
 
             with patch.object(manager, "_listener_details", return_value=None):
@@ -1571,6 +2342,14 @@ class ServiceManagerTests(unittest.TestCase):
             self.assertEqual(
                 unavailable_listener["services"]["gateway"]["healthProbe"],
                 "SKIPPED_LISTENER_UNVERIFIED",
+            )
+            self.assertEqual(
+                unavailable_listener["services"]["gateway"]["runtimeIdentityStatus"],
+                "UNVERIFIED",
+            )
+            self.assertNotIn(
+                "runtimeId",
+                unavailable_listener["services"]["gateway"],
             )
 
             with patch.object(manager, "_listener_details", return_value=[]):
@@ -1621,7 +2400,14 @@ class ServiceManagerTests(unittest.TestCase):
         manager._write_state({
             "version": 1,
             "services": {},
-            "gatewayQuiesce": {"status": "QUIESCED"},
+            "gatewayQuiesce": {
+                "status": "QUIESCED",
+                "operationId": "quiesce-original",
+                "resumeOperationId": "resume-new",
+                "attestationOperationId": "attestation-new",
+                "writerAttestationSource": "OPERATOR",
+                "writerEvidenceStatus": "COMPLETE",
+            },
         })
 
         with patch.object(manager, "_listener_details", return_value=[]):
@@ -1629,6 +2415,16 @@ class ServiceManagerTests(unittest.TestCase):
 
         self.assertEqual(status["gatewayQuiesce"]["status"], "QUIESCED")
         self.assertEqual(status["gatewayQuiesce"]["writersStatus"], "NOT_VERIFIED")
+        self.assertEqual(
+            status["gatewayQuiesce"]["operationId"], "quiesce-original"
+        )
+        self.assertEqual(
+            status["gatewayQuiesce"]["resumeOperationId"], "resume-new"
+        )
+        self.assertEqual(
+            status["gatewayQuiesce"]["attestationOperationId"],
+            "attestation-new",
+        )
         self.assertEqual(status["writersStatus"], "NOT_VERIFIED")
 
     def test_read_only_status_fails_closed_for_missing_or_malformed_manager_state(self):
@@ -1686,6 +2482,73 @@ class ServiceManagerTests(unittest.TestCase):
         manager_class.return_value.start_all.assert_not_called()
         manager_class.return_value.stop_managed.assert_not_called()
         manager_class.return_value.close_control_channel.assert_called_once()
+
+    def test_restart_auth_cli_routes_through_the_existing_manager_control_channel(self):
+        manager = self.manager([])
+        response = {
+            "success": True,
+            "operationId": "reload-auth-1",
+            "status": "SUCCEEDED",
+            "detail": "Authentication helper restarted and verified.",
+        }
+        output = StringIO()
+        with (
+            patch.object(service_manager_module, "ServiceManager", return_value=manager),
+            patch.object(
+                service_manager_module,
+                "request_gateway_control_operation",
+                return_value=response,
+            ) as request,
+            redirect_stdout(output),
+        ):
+            result = service_manager_module._main([
+                "restart-auth",
+                "--root",
+                str(self.root),
+                "--operation-id",
+                "reload-auth-1",
+            ])
+
+        self.assertEqual(result, 0)
+        request.assert_called_once_with(
+            manager.state_directory,
+            "restart-auth",
+            "reload-auth-1",
+        )
+        self.assertIn("Authentication helper restart-auth SUCCEEDED", output.getvalue())
+
+    def test_control_request_accepts_restart_auth_using_validated_operation_id(self):
+        control_path = self.state / "manager.sock"
+        self.state.mkdir(mode=0o700)
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener:
+            listener.bind(str(control_path))
+            control_path.chmod(0o600)
+            listener.listen(1)
+
+            received = []
+
+            def serve_control_request():
+                connection, _ = listener.accept()
+                with connection:
+                    received.append(json.loads(connection.recv(4096)))
+                    connection.sendall(
+                        b'{"success":true,"status":"SUCCEEDED"}\n'
+                    )
+
+            server = threading.Thread(target=serve_control_request, daemon=True)
+            server.start()
+            response = request_gateway_control_operation(
+                self.state,
+                "restart-auth",
+                "reload-auth-control",
+            )
+            server.join(timeout=2)
+
+        self.assertTrue(response["success"])
+        self.assertEqual(received, [{
+            "operation": "restart-auth",
+            "operationId": "reload-auth-control",
+        }])
 
     def test_quiesce_identity_mismatch_is_rejected_without_signalling(self):
         gateway_port = free_port()
@@ -1815,7 +2678,10 @@ class ServiceManagerTests(unittest.TestCase):
         second.acquire_manager_lease()
         try:
             statuses = second.start_all()
-            self.assertIn("quiesced", statuses["gateway"])
+            self.assertIn("QUIESCED", statuses["gateway"])
+            self.assertIn("operationId=persistent-quiesce", statuses["gateway"])
+            self.assertIn("writers=NOT_VERIFIED", statuses["gateway"])
+            self.assertIn("gateway startup refused", statuses["gateway"])
             self.assertNotIn("gateway", second.owned_processes())
             persisted = json.loads((self.state / "services.json").read_text())
             self.assertEqual(persisted["gatewayQuiesce"]["status"], "QUIESCED")
@@ -1944,6 +2810,123 @@ class ServiceManagerTests(unittest.TestCase):
             manager.stop_managed()
             manager.release_manager_lease()
 
+    def test_interrupted_resume_candidate_is_reconciled_without_clearing_quiesce(self):
+        gateway_port = free_port()
+        gateway = fixture_service(
+            self.root, "gateway", gateway_port, marker="gateway-interrupted-resume"
+        )
+        manager = self.manager([gateway])
+        manager.acquire_manager_lease()
+        candidate = None
+        try:
+            candidate = subprocess.Popen(
+                gateway.command,
+                cwd=self.root,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            deadline = time.monotonic() + 2
+            while gateway.probe() is None and time.monotonic() < deadline:
+                time.sleep(0.02)
+            self.assertIsNone(candidate.poll())
+            candidate_record = manager._record_for(gateway, candidate.pid)
+            manager._write_state({
+                "version": 1,
+                "services": {},
+                "gatewayQuiesce": {
+                    "status": "RESUME_REQUESTED",
+                    "operationId": "quiesce-before-interrupted-resume",
+                    "resumeOperationId": "interrupted-resume",
+                    "process": {"pid": 2_000_000_000, "start_ticks": 1},
+                    "writersStatus": "OPERATOR_ATTESTED",
+                    "writerAttestationSource": "OPERATOR",
+                },
+                "gatewayLifecycle": {
+                    "state": "RECOVERING",
+                    "updatedAt": time.time(),
+                    "reason": "resume launch was interrupted",
+                    "operationId": "interrupted-resume",
+                    "history": [],
+                },
+                "activeControlOperation": "interrupted-resume",
+                "controlOperations": {
+                    "interrupted-resume": {
+                        "operation": "resume-gateway",
+                        "service": "gateway",
+                        "status": "VERIFYING",
+                        "oldProcess": {"pid": 2_000_000_000, "start_ticks": 1},
+                        "candidateProcess": candidate_record,
+                        "events": [],
+                    }
+                },
+            })
+
+            manager.start_all()
+
+            self.assertIsNotNone(candidate.poll())
+            persisted = json.loads((self.state / "services.json").read_text())
+            self.assertEqual(
+                persisted["gatewayQuiesce"]["status"], "QUIESCED"
+            )
+            self.assertEqual(
+                persisted["gatewayQuiesce"]["operationId"],
+                "quiesce-before-interrupted-resume",
+            )
+            self.assertEqual(
+                persisted["gatewayQuiesce"]["resumeOperationId"],
+                "interrupted-resume",
+            )
+            self.assertEqual(
+                persisted["controlOperations"]["interrupted-resume"]["status"],
+                "FAILED",
+            )
+            self.assertIsNone(persisted["activeControlOperation"])
+            self.assertNotIn("gateway", manager.owned_processes())
+        finally:
+            if candidate is not None and candidate.poll() is None:
+                candidate.terminate()
+                candidate.wait(timeout=2)
+            manager.stop_managed()
+            manager.release_manager_lease()
+
+    def test_failed_gateway_resume_preserves_quiesce_and_transaction_provenance(self):
+        self.write_quiesced_state("original-quiesce")
+        manager = self.recovery_manager()
+        attested = manager._attest_gateway_writers(
+            "separate-attestation", operator_writer_attestation("original-quiesce")
+        )
+        self.assertTrue(attested["success"], attested)
+
+        with patch.object(
+            manager,
+            "_start_service",
+            side_effect=StartupFailure("gateway", "fixture recovery failure", {}),
+        ):
+            result = manager._resume_gateway("separate-resume")
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["status"], "FAILED")
+        persisted = json.loads((self.state / "services.json").read_text())
+        self.assertEqual(persisted["gatewayQuiesce"]["status"], "QUIESCED")
+        self.assertEqual(
+            persisted["gatewayQuiesce"]["operationId"], "original-quiesce"
+        )
+        self.assertEqual(
+            persisted["gatewayQuiesce"]["resumeOperationId"], "separate-resume"
+        )
+        self.assertEqual(
+            persisted["gatewayQuiesce"]["writersStatus"], "OPERATOR_ATTESTED"
+        )
+        self.assertEqual(
+            persisted["controlOperations"]["separate-resume"]["quiesceOperationId"],
+            "original-quiesce",
+        )
+        self.assertEqual(
+            persisted["controlOperations"]["separate-resume"]["status"], "FAILED"
+        )
+
     def test_resume_refuses_stale_unrelated_service_and_keeps_quiesce(self):
         auth_port, gateway_port = free_port(), free_port()
         auth = fixture_service(self.root, "auth", auth_port, marker="auth-stale-resume")
@@ -1967,9 +2950,11 @@ class ServiceManagerTests(unittest.TestCase):
             state = json.loads((self.state / "services.json").read_text())
             auth_record = state["services"]["auth"]
             attestation = operator_writer_attestation("quiesce-before-stale-resume")
-            state["gatewayQuiesce"]["writersStatus"] = "OPERATOR_ATTESTED"
-            state["gatewayQuiesce"]["writerAttestationSource"] = "OPERATOR"
-            state["gatewayQuiesce"]["writerAttestation"] = attestation
+            attested = manager._attest_gateway_writers(
+                "attestation-before-stale-resume", attestation
+            )
+            self.assertTrue(attested["success"], attested)
+            state = json.loads((self.state / "services.json").read_text())
             state["services"]["auth"]["start_ticks"] += 1
             manager._write_state(state)
 

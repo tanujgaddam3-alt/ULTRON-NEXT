@@ -15,6 +15,7 @@ from uuid import uuid4
 import pytest
 
 from tests.application.test_content_processing import _harness
+from tests.application.schema_test_utils import set_legacy_schema_version
 from ultron.application.content.rendering import ContentClipRenderingService
 from ultron.application.content.store import ContentStore, IdempotencyConflictError
 from ultron.application.runtime.interface_gateway import InterfaceGateway
@@ -23,6 +24,7 @@ from ultron.domain.content import (
     ContentCreativeEditPlan,
     ContentCreativeEditPlanSegmentV2,
     ContentCreativeEditPlanV2,
+    ContentCreativeEditPlanV3,
     ContentEditPlanAudio,
     ContentEditPlanSegment,
     ContentEditPlanSource,
@@ -464,7 +466,10 @@ def test_artifact_transfer_timeout_preserves_completed_state(tmp_path, monkeypat
     harness.store.close()
 
 
-@pytest.mark.parametrize("plan_version", ["cre-creative-plan-v1", "cre-creative-plan-v2"])
+@pytest.mark.parametrize(
+    "plan_version",
+    ["cre-creative-plan-v1", "cre-creative-plan-v2", "cre-creative-plan-v3"],
+)
 def test_durable_render_keeps_legacy_and_structured_plan_compatibility(
     tmp_path,
     monkeypatch,
@@ -516,7 +521,12 @@ def test_durable_render_keeps_legacy_and_structured_plan_compatibility(
             gain_db=0,
             timing_policy="trim_pad_to_video_segment",
         )
-        plan = ContentCreativeEditPlanV2(
+        plan_model = (
+            ContentCreativeEditPlanV3
+            if plan_version == "cre-creative-plan-v3"
+            else ContentCreativeEditPlanV2
+        )
+        plan = plan_model(
             project_id=project.project_id,
             revision=1,
             creative_direction="Synthetic v2 compatibility.",
@@ -562,9 +572,16 @@ def test_durable_render_keeps_legacy_and_structured_plan_compatibility(
         )
 
     rendering.renderer.render_creative_edit_plan = render_plan
-    result = _submit(harness, rendering, str(uuid4()), project.project_id)
+    operation_id = str(uuid4())
+    result = _submit(harness, rendering, operation_id, project.project_id)
     assert result["state"] == "completed"
     assert result["result"]["planVersion"] == plan_version
+    if plan_version == "cre-creative-plan-v1":
+        assert "audioValidation" not in result["result"]
+    else:
+        assert result["result"]["audioValidation"]["status"] == "PASSED"
+        assert result["result"]["audioValidation"]["outputPresent"] is False
+        assert "base64" not in result["result"]["audioValidation"]
     assert observed_plan[0].schema_version == plan_version
     harness.store.close()
 
@@ -575,6 +592,7 @@ def test_v9_migration_is_repeatable_and_preserves_existing_project_data(
 ):
     harness, asset, _, _ = _harness(tmp_path, monkeypatch)
     project = _project(harness, asset, "migration-preservation-project")
+    set_legacy_schema_version(harness.store, 9)
     assert harness.store.migrate_publishing_attempt_schema() == 9
     assert harness.store.get_edit_project(project.project_id, "alice") == project
     assert harness.store.get_asset(asset.asset_id) == asset
@@ -600,6 +618,7 @@ def test_explicit_migration_command_requires_and_uses_matching_backup(tmp_path):
     database = tmp_path / "content.db"
     backup = tmp_path / "content.db.pre-v10"
     store = ContentStore(database)
+    set_legacy_schema_version(store, 9)
     assert store.migrate_publishing_attempt_schema() == 9
     store.close()
     shutil.copyfile(database, backup)
@@ -692,6 +711,21 @@ def test_gateway_submit_status_and_artifact_operations_are_owner_authenticated(
     )
     assert websocket.messages == []
 
+    completed = harness.store.get_private_render_operation(operation_id, "alice")
+    assert completed is not None and completed.result_json is not None
+    result = json.loads(completed.result_json)
+    # Model nested legacy result metadata without modifying the saved artifact.
+    result["status"] = {"artifact": dict(result)}
+    with harness.store._transaction() as connection:
+        connection.execute(
+            """
+            UPDATE content_private_render_operations
+            SET result_json = ?
+            WHERE operation_id = ?
+            """,
+            (harness.store._canonical(result), operation_id),
+        )
+
     asyncio.run(
         gateway.handle(
             websocket,
@@ -705,6 +739,15 @@ def test_gateway_submit_status_and_artifact_operations_are_owner_authenticated(
     status = websocket.messages[-1]
     assert status["success"] is True
     assert status["payload"]["state"] == "completed"
+    assert set(status["payload"]["result"]) == {
+        "projectId",
+        "planMode",
+        "planVersion",
+        "planRevision",
+        "planSha256",
+        "sourceAssetIds",
+    }
+    assert "status" not in status["payload"]["result"]
 
     asyncio.run(
         gateway.handle(
@@ -718,10 +761,31 @@ def test_gateway_submit_status_and_artifact_operations_are_owner_authenticated(
     )
     artifact = websocket.messages[-1]
     assert artifact["success"] is True
+    assert set(artifact["payload"]) == {
+        "base64",
+        "durationSeconds",
+        "mimeType",
+        "sha256",
+        "sizeBytes",
+    }
     assert artifact["payload"]["sizeBytes"] == len(b"synthetic-rendered-mp4")
     assert hashlib.sha256(
         base64.b64decode(artifact["payload"]["base64"], validate=True)
     ).hexdigest() == artifact["payload"]["sha256"]
+
+    asyncio.run(
+        gateway.handle(
+            websocket,
+            {
+                "action": "CRE_PRIVATE_RENDER_ARTIFACT_REQUEST",
+                "correlationId": "private-render-artifact-retry",
+                "payload": {"operationId": operation_id},
+            },
+        )
+    )
+    retried_artifact = websocket.messages[-1]
+    assert retried_artifact["success"] is True
+    assert retried_artifact["payload"] == artifact["payload"]
     assert render_calls == [True]
     gateway.operation_store.close()
     harness.store.close()

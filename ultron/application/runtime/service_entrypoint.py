@@ -6,19 +6,16 @@ import signal
 from pathlib import Path
 
 
-async def _serve() -> None:
+async def _serve(shutdown_requested: asyncio.Event) -> None:
     from ultron.application.runtime.interface_gateway import serve_interface
     from ultron.infrastructure.container import container
 
-    server_task = asyncio.create_task(
-        serve_interface(container, host="127.0.0.1", port=8080)
+    await serve_interface(
+        container,
+        host="127.0.0.1",
+        port=8080,
+        shutdown_event=shutdown_requested,
     )
-    try:
-        await server_task
-    finally:
-        if not server_task.done():
-            server_task.cancel()
-            await asyncio.gather(server_task, return_exceptions=True)
 
 
 def main() -> None:
@@ -40,19 +37,24 @@ def main() -> None:
         loop.add_signal_handler(signal_number, stop_requested.set)
 
     async def run() -> None:
-        server_task = asyncio.create_task(_serve())
+        server_task = asyncio.create_task(_serve(stop_requested))
         stop_task = asyncio.create_task(stop_requested.wait())
-        done, pending = await asyncio.wait(
-            (server_task, stop_task),
-            return_when=asyncio.FIRST_COMPLETED,
-        )
-        if server_task in done:
-            stop_task.cancel()
-            await asyncio.gather(stop_task, return_exceptions=True)
+        try:
+            await asyncio.wait(
+                (server_task, stop_task),
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if not stop_requested.is_set():
+                await server_task
+                return
             await server_task
-            return
-        server_task.cancel()
-        await asyncio.gather(server_task, return_exceptions=True)
+        finally:
+            if not stop_task.done():
+                stop_task.cancel()
+                await asyncio.gather(stop_task, return_exceptions=True)
+            if not server_task.done():
+                server_task.cancel()
+                await asyncio.gather(server_task, return_exceptions=True)
 
     try:
         loop.run_until_complete(run())

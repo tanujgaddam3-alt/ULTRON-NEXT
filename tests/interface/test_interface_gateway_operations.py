@@ -55,6 +55,45 @@ def test_gateway_advertises_only_approved_consequential_actions():
     assert required_actions == set(_CONSEQUENTIAL_VERBS)
 
 
+def test_gateway_refreshes_only_authenticated_valid_protocol_activity(monkeypatch):
+    gateway = make_gateway()
+    websocket = FakeWebSocket()
+    authorizer = gateway.approval_authorizer
+    authenticate_test_websocket(authorizer, websocket)
+    touched = []
+    original_touch = authorizer.touch
+
+    def touch(connection):
+        touched.append(connection)
+        return original_touch(connection)
+
+    monkeypatch.setattr(authorizer, "touch", touch)
+
+    async def exercise():
+        await gateway._handle_request(
+            websocket,
+            {"action": "UNKNOWN_ACTION", "correlationId": "unknown"},
+        )
+        await gateway._handle_request(
+            websocket,
+            {"action": "PING", "correlationId": "bad\ncorrelation"},
+        )
+        assert touched == []
+        await gateway._handle_request(
+            websocket,
+            {"action": "PING", "correlationId": "valid-ping"},
+        )
+
+        unauthenticated = FakeWebSocket()
+        await gateway._handle_request(
+            unauthenticated,
+            {"action": "PING", "correlationId": "unauthenticated-ping"},
+        )
+        assert touched == [websocket]
+
+    asyncio.run(exercise())
+    assert websocket.messages[-1]["type"] == "PONG"
+
 def test_unmapped_consequential_dispatch_is_rejected_without_proposal():
     gateway = make_gateway()
     websocket = FakeWebSocket()

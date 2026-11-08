@@ -1,0 +1,102 @@
+from __future__ import annotations
+
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+import sys
+sys.path.insert(
+    0,
+    str(Path(__file__).resolve().parents[2] / "scripts"),
+)
+
+from ultron_cre_proc_audit import _scan_fd_directory
+
+
+class CreProcAuditRetryTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name)
+        self.database = self.root / "ultron_cre.db"
+        self.database.write_bytes(b"fixture")
+        self.proc_root = self.root / "proc"
+
+        process_fd = self.proc_root / "4242" / "fd"
+        process_fd.mkdir(parents=True)
+        (process_fd / "7").symlink_to(self.database)
+
+        self.targets = {str(self.database)}
+
+    def tearDown(self):
+        self.temporary.cleanup()
+
+    def test_disappearing_descriptor_is_reenumerated_and_resolved(self):
+        import ultron_cre_proc_audit as audit
+
+        real_readlink = audit.os.readlink
+        calls = {"count": 0}
+
+        def disappear_once(path):
+            calls["count"] += 1
+            if calls["count"] == 1:
+                raise FileNotFoundError()
+            return real_readlink(path)
+
+        with patch.object(audit, "PROC_ROOT", self.proc_root):
+            with patch.object(audit.os, "readlink", side_effect=disappear_once):
+                result = _scan_fd_directory(4242, self.targets, max_attempts=3)
+
+        self.assertEqual(result["status"], "CHECKED")
+        self.assertEqual(result["resolvedDescriptorRaceCount"], 1)
+        self.assertEqual(result["unresolvedDescriptorRaceCount"], 0)
+        self.assertEqual(len(result["matches"]), 1)
+        self.assertEqual(
+            result["descriptorRaceEvents"][0]["outcome"],
+            "RESOLVED",
+        )
+        self.assertEqual(result["matches"][0]["targetKind"], "database")
+
+    def test_persistent_descriptor_race_remains_incomplete(self):
+        import ultron_cre_proc_audit as audit
+
+        with patch.object(audit, "PROC_ROOT", self.proc_root):
+            with patch.object(
+                audit.os,
+                "readlink",
+                side_effect=FileNotFoundError(),
+            ):
+                result = _scan_fd_directory(
+                    4242,
+                    self.targets,
+                    max_attempts=3,
+                )
+
+        self.assertEqual(result["status"], "INCOMPLETE")
+        self.assertEqual(result["unresolvedDescriptorRaceCount"], 1)
+        self.assertEqual(result["matches"], [])
+        self.assertEqual(len(result["descriptorRaceEvents"]), 3)
+        self.assertTrue(
+            all(
+                event["outcome"] == "UNRESOLVED"
+                and event["pid"] == 4242
+                and event["fd"] == "7"
+                for event in result["descriptorRaceEvents"]
+            )
+        )
+
+    def test_permission_error_is_not_reclassified_as_a_race(self):
+        import ultron_cre_proc_audit as audit
+
+        with patch.object(audit, "PROC_ROOT", self.proc_root):
+            with patch.object(
+                audit.os,
+                "readlink",
+                side_effect=PermissionError(),
+            ):
+                result = _scan_fd_directory(4242, self.targets)
+
+        self.assertEqual(result["status"], "INCOMPLETE")
+        self.assertEqual(result["reason"], "descriptor_permission_denied")
+
+

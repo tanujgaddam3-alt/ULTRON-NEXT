@@ -2,6 +2,8 @@ import asyncio
 import base64
 import hashlib
 import json
+import math
+import subprocess
 import time
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -13,21 +15,38 @@ from ultron.application.content.status import (
     ContentOwnerMapping,
     ContentStatusService,
 )
+from ultron.application.content.acquisition import ContentAcquisitionService
+from ultron.application.content.discovery import ContentDiscoveryService
+from ultron.application.content.nasa import (
+    NASAImagesAcquisitionAdapter,
+    NASAVideoCandidate,
+)
+from ultron.application.content.provider_network import ProviderSearchResult
 from ultron.application.content.script_preview import OriginalScriptPreviewService
 from ultron.application.content.clip_renderer import FFmpegLocalClipRenderer
 from ultron.application.content.intelligence_service import ContentIntelligenceService
 from ultron.application.content.processing import LocalTemporaryContentStore
 from ultron.application.content.rendering import ContentClipRenderingService
+from ultron.application.content.sources import SourceDocument
 from ultron.application.content.store import ContentStore
 from ultron.application.runtime.interface_gateway import InterfaceGateway
 from ultron.application.runtime.operation_store import SQLiteOperationStore
 from ultron.domain.content import ContentPlatform, RightsAction
-from ultron.domain.content_intelligence import EngineTranscript, EngineTranscriptSegment
+from ultron.domain.content_acquisition import AcquisitionIntendedUse
+from ultron.domain.content import ContentEditProject, ContentTargetContext, RightsUse
+from ultron.domain.content_intelligence import (
+    EngineTranscript,
+    EngineTranscriptSegment,
+    HighlightConfig,
+    TranscriptionConfig,
+)
+from ultron.domain.content_owner_processing import OwnerLocalProcessingOperation
 from ultron.security.identity.authenticator import WebSocketAuthenticator
 from tests.application.test_content_rendering import (
     _source_video_bytes,
     _video_only_source_bytes,
 )
+from tests.application.test_content_intelligence import FakeTranscriptionEngine
 from tests.interface.auth_test_utils import (
     authenticate_test_websocket,
     make_test_authenticator,
@@ -79,6 +98,7 @@ def _gateway(database, *, principal="test-operator"):
 
 def _configured_source_gateway(database, *, principal="source-owner"):
     store = ContentStore(database)
+    store.migrate_owner_local_processing_schema()
     authenticator = make_test_authenticator(principal)
     storage = LocalTemporaryContentStore(database.parent / "managed-content")
     rights = ContentRightsService(
@@ -113,6 +133,67 @@ def _configured_source_gateway(database, *, principal="source-owner"):
     )
 
 
+def _create_scored_opportunity(store, *, key):
+    store.migrate_source_identity_schema()
+    store.migrate_acquisition_request_schema()
+    discovery = ContentDiscoveryService(store)
+    url = f"https://example.com/authorized/{key}"
+    opportunity = discovery.discover(
+        topic=f"Authorized source {key}",
+        niche="education",
+        target_audience="learners",
+        target_language="en",
+        content_format="short",
+        source_documents=(
+            SourceDocument(
+                canonical_url=url,
+                title=f"Authorized source {key}",
+                summary="Persisted source observation.",
+                published_at=datetime.now(UTC),
+                publisher="Example",
+                source_identity=f"rss_atom:url-sha256:{hashlib.sha256(url.encode()).hexdigest()}",
+                provider="rss_atom",
+                provider_content_id=key,
+                original_url=url,
+            ),
+        ),
+    )
+    researched, _ = discovery.research(
+        opportunity,
+        summary="Evidence-backed test opportunity.",
+    )
+    discovery.persist_score(researched)
+    source_id = store.list_content_evidence(opportunity.opportunity_id)[0].source_id
+    return opportunity, source_id
+
+
+def _create_upload_request(gateway, store, websocket, *, key):
+    opportunity, source_id = _create_scored_opportunity(store, key=key)
+    parameters = {
+        "opportunity_id": opportunity.opportunity_id,
+        "source_id": source_id,
+        "intended_use": AcquisitionIntendedUse.EDITORIAL_DEVELOPMENT.value,
+        "idempotency_key": key,
+    }
+    context = gateway._cre_authorization_context(
+        websocket,
+        f"select-{key}",
+        action="content_request_acquisition",
+        parameters=parameters,
+    )
+    request = ContentAcquisitionService(
+        store=store,
+        authority=gateway.approval_authorizer,
+    ).select_opportunity(
+        opportunity_id=opportunity.opportunity_id,
+        source_id=source_id,
+        intended_use=AcquisitionIntendedUse.EDITORIAL_DEVELOPMENT,
+        idempotency_key=key,
+        context=context,
+    )
+    return request.request_id
+
+
 def test_authenticated_cre_status_request_returns_owner_scoped_dto(tmp_path):
     gateway, store, authenticator = _gateway(tmp_path / "content.db")
     websocket = FakeWebSocket()
@@ -141,6 +222,179 @@ def test_authenticated_cre_status_request_returns_owner_scoped_dto(tmp_path):
     assert store._connection.total_changes == before
     store.close()
     gateway.operation_store.close()
+
+
+def test_authenticated_discovery_selection_creates_recoverable_acquisition_request(
+    tmp_path,
+):
+    gateway, store, authenticator, _, _ = _configured_source_gateway(
+        tmp_path / "discovery-selection.db",
+    )
+    websocket = FakeWebSocket()
+    authenticate_test_websocket(authenticator, websocket)
+    opportunity, source_id = _create_scored_opportunity(
+        store,
+        key="gateway-opportunity-selection",
+    )
+
+    asyncio.run(
+        gateway.handle(
+            websocket,
+            {
+                "action": "CRE_ACQUISITION_OPPORTUNITIES_REQUEST",
+                "correlationId": "list-selectable-opportunities",
+                "payload": {},
+            },
+        )
+    )
+    listed = websocket.messages[-1]
+    assert listed["success"] is True
+    assert listed["status"] == "ACQUISITION_OPPORTUNITIES_AVAILABLE"
+    assert listed["payload"]["opportunities"] == [
+        {
+            "opportunityId": opportunity.opportunity_id,
+            "topic": opportunity.topic,
+            "niche": opportunity.niche,
+            "targetAudience": opportunity.target_audience,
+            "targetLanguage": opportunity.target_language,
+            "contentFormat": opportunity.content_format,
+            "sourceId": source_id,
+            "sourceIdentity": store.list_content_opportunity_sources(
+                opportunity.opportunity_id,
+            )[0].source_identity,
+            "sourceReference": "https://example.com/authorized/gateway-opportunity-selection",
+            "sourceTitle": opportunity.topic,
+            "provider": "rss_atom",
+        }
+    ]
+
+    selection = {
+        "opportunityId": opportunity.opportunity_id,
+        "sourceId": source_id,
+        "intendedUse": AcquisitionIntendedUse.EDITORIAL_DEVELOPMENT.value,
+        "idempotencyKey": "gateway-selection-once",
+    }
+    for correlation_id in ("select-opportunity", "retry-opportunity-selection"):
+        asyncio.run(
+            gateway.handle(
+                websocket,
+                {
+                    "action": "CRE_ACQUISITION_SELECT_REQUEST",
+                    "correlationId": correlation_id,
+                    "payload": selection,
+                },
+            )
+        )
+        response = websocket.messages[-1]
+        assert response["success"] is True
+        assert response["status"] == "ACQUISITION_REQUEST_SELECTED"
+
+    request_id = websocket.messages[-1]["payload"]["requestId"]
+    request = store.get_content_acquisition_request(request_id)
+    assert request.owner_id == authenticator.principal
+    assert request.source_id == source_id
+    assert request.intended_use is AcquisitionIntendedUse.EDITORIAL_DEVELOPMENT
+    assert request.state.value == "awaiting_adapter"
+    assert store._connection.execute(
+        "SELECT COUNT(*) FROM content_acquisition_requests WHERE opportunity_id = ?",
+        (opportunity.opportunity_id,),
+    ).fetchone()[0] == 1
+
+    asyncio.run(
+        gateway.handle(
+            websocket,
+            {
+                "action": "CRE_ACQUISITION_REQUESTS_REQUEST",
+                "correlationId": "list-owner-acquisition-requests",
+                "payload": {},
+            },
+        )
+    )
+    listed_requests = websocket.messages[-1]["payload"]["requests"]
+    assert len(listed_requests) == 1
+    assert listed_requests[0]["requestId"] == request_id
+    assert listed_requests[0]["state"] == "awaiting_adapter"
+    store.close()
+    gateway.operation_store.close()
+
+
+def test_authenticated_gateway_search_persists_provider_opportunity(
+    tmp_path,
+    monkeypatch,
+):
+    gateway, store, authenticator, _, _ = _configured_source_gateway(
+        tmp_path / "gateway-provider-discovery.db",
+    )
+    store.migrate_source_identity_schema()
+    websocket = FakeWebSocket()
+    authenticate_test_websocket(authenticator, websocket)
+    candidate = NASAVideoCandidate(
+        nasa_id="NASA_GATEWAY_TEST_001",
+        title="Gateway solar observation",
+        center="NASA",
+        description="Provider discovery metadata.",
+        metadata_url="https://images-api.nasa.gov/search?nasa_id=NASA_GATEWAY_TEST_001",
+        canonical_url="https://images-api.nasa.gov/search?nasa_id=NASA_GATEWAY_TEST_001",
+        asset_url="https://images-assets.nasa.gov/video/NASA_GATEWAY_TEST_001/source.mp4",
+        copyright_notice=None,
+        photographer=None,
+    )
+    adapter = NASAImagesAcquisitionAdapter()
+    monkeypatch.setattr(
+        adapter,
+        "search_with_status",
+        lambda *_args, **_kwargs: ProviderSearchResult(
+            status=200,
+            candidates=(candidate,),
+        ),
+    )
+    gateway.cre_discovery_service = ContentDiscoveryService(
+        store,
+        provider_adapters={"nasa": adapter},
+    )
+    try:
+        asyncio.run(
+            gateway.handle(
+                websocket,
+                {
+                    "action": "CRE_ACQUISITION_OPPORTUNITIES_REQUEST",
+                    "correlationId": "provider-discovery",
+                    "payload": {
+                        "provider": "nasa",
+                        "query": "solar observation",
+                        "niche": "science",
+                        "targetAudience": "learners",
+                        "targetLanguage": "en",
+                        "contentFormat": "short",
+                        "pageSize": 5,
+                    },
+                },
+            )
+        )
+        response = websocket.messages[-1]
+        assert response["success"] is True
+        assert response["status"] == "DISCOVERY_RESULTS_PERSISTED"
+        assert response["payload"]["discovery"] == {
+            "provider": "nasa",
+            "query": "solar observation",
+            "httpStatus": 200,
+            "resultCount": 1,
+            "persistedOpportunityCount": 1,
+        }
+        persisted = response["payload"]["opportunities"][0]
+        assert persisted["acquisitionEligible"] is False
+        opportunity = store.get_content_opportunity(persisted["opportunityId"])
+        assert opportunity is not None
+        assert opportunity.status.value == "discovered"
+        source = store.list_content_opportunity_sources(opportunity.opportunity_id)[0]
+        assert source.provider_content_id == candidate.nasa_id
+        assert source.canonical_url == candidate.canonical_url
+        assert source.source_identity == persisted["sourceIdentity"]
+        assert store._connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        assert store._connection.execute("PRAGMA foreign_key_check").fetchall() == []
+    finally:
+        store.close()
+        gateway.operation_store.close()
 
 
 def test_unauthenticated_and_client_selected_owner_requests_are_denied(tmp_path):
@@ -285,6 +539,7 @@ def test_source_video_upload_requires_configured_managed_storage(tmp_path):
                     "targetContext": "youtube_shorts",
                     "accountId": "channel-1",
                     "territory": "US",
+                    "acquisitionRequestId": "request-1",
                 },
             },
         )
@@ -306,6 +561,12 @@ def test_browser_source_upload_registers_video_only_footage_with_owner_and_hash(
     )
     websocket = FakeWebSocket()
     authenticate_test_websocket(authenticator, websocket)
+    request_id = _create_upload_request(
+        gateway,
+        store,
+        websocket,
+        key="video-only-upload",
+    )
     source_bytes = _video_only_source_bytes(
         tmp_path,
         name="gateway-browser-video-only",
@@ -324,6 +585,7 @@ def test_browser_source_upload_registers_video_only_footage_with_owner_and_hash(
                     "targetContext": "youtube_shorts",
                     "accountId": "private-local-owner",
                     "territory": "US",
+                    "acquisitionRequestId": request_id,
                 },
             },
         )
@@ -338,7 +600,822 @@ def test_browser_source_upload_registers_video_only_footage_with_owner_and_hash(
     assert asset.owner_id == authenticator.principal
     assert asset.content_sha256 == hashlib.sha256(source_bytes).hexdigest()
     assert asset_summary["sizeBytes"] == len(source_bytes)
-    assert asset_summary["rightsStatus"] == "PENDING_REVIEW"
+    assert asset_summary["acquisitionRequestId"] == request_id
+    assert asset_summary["acquisitionState"] == "awaiting_rights"
+    assert asset_summary["rightsStatus"] == "pending_asset_evaluation"
+    assert store.get_owner_local_processing_authorization_for_asset(
+        asset.asset_id,
+        asset.content_sha256,
+        authenticator.principal,
+    ) is None
+    with pytest.raises(PermissionError):
+        with store._transaction() as connection:
+            store.require_owner_local_processing_authorization_in_transaction(
+                connection,
+                owner_id=authenticator.principal,
+                asset_id=asset.asset_id,
+                asset_sha256=asset.content_sha256,
+                operation=OwnerLocalProcessingOperation.TRANSCRIBE,
+                actor=authenticator.principal,
+            )
+    initial_event_count = store._connection.execute(
+        """
+        SELECT COUNT(*) FROM content_acquisition_request_events
+        WHERE request_id = ?
+        """,
+        (request_id,),
+    ).fetchone()[0]
+
+    asyncio.run(
+        gateway.handle(
+            websocket,
+            {
+                "action": "CRE_SOURCE_VIDEO_REQUEST",
+                "correlationId": "browser-video-only-retry",
+                "payload": {
+                    "videoBase64": base64.b64encode(source_bytes).decode("ascii"),
+                    "fileName": "silent-source.mp4",
+                    "mediaType": "video/mp4",
+                    "targetContext": "youtube_shorts",
+                    "accountId": "private-local-owner",
+                    "territory": "US",
+                    "acquisitionRequestId": request_id,
+                },
+            },
+        )
+    )
+    assert websocket.messages[-1]["success"] is True
+    assert store._connection.execute(
+        "SELECT COUNT(*) FROM content_assets WHERE asset_id = ?",
+        (asset.asset_id,),
+    ).fetchone()[0] == 1
+    assert store._connection.execute(
+        """
+        SELECT COUNT(*) FROM content_acquisition_request_events
+        WHERE request_id = ?
+        """,
+        (request_id,),
+    ).fetchone()[0] == initial_event_count
+
+    conflicting_bytes = _source_video_bytes(tmp_path)
+    assert conflicting_bytes != source_bytes
+    asyncio.run(
+        gateway.handle(
+            websocket,
+            {
+                "action": "CRE_SOURCE_VIDEO_REQUEST",
+                "correlationId": "browser-video-only-conflicting-retry",
+                "payload": {
+                    "videoBase64": base64.b64encode(conflicting_bytes).decode("ascii"),
+                    "fileName": "silent-source.mp4",
+                    "mediaType": "video/mp4",
+                    "targetContext": "youtube_shorts",
+                    "accountId": "private-local-owner",
+                    "territory": "US",
+                    "acquisitionRequestId": request_id,
+                },
+            },
+        )
+    )
+    assert websocket.messages[-1]["success"] is False
+    assert store.get_asset(asset.asset_id).content_sha256 == hashlib.sha256(
+        source_bytes
+    ).hexdigest()
+    assert store._connection.execute(
+        "SELECT COUNT(*) FROM content_assets",
+    ).fetchone()[0] == 1
+    store.close()
+    gateway.operation_store.close()
+
+
+def test_authenticated_original_owner_attestation_is_explicit_and_not_independent(
+    tmp_path,
+):
+    gateway, store, authenticator, _, _ = _configured_source_gateway(
+        tmp_path / "owner-attestation.db",
+    )
+    websocket = FakeWebSocket()
+    authenticate_test_websocket(authenticator, websocket)
+    source_bytes = _video_only_source_bytes(
+        tmp_path,
+        name="owner-attestation",
+    )
+    asyncio.run(
+        gateway.handle(
+            websocket,
+            {
+                "action": "CRE_SOURCE_VIDEO_REQUEST",
+                "correlationId": "owner-created-intake",
+                "payload": {
+                    "videoBase64": base64.b64encode(source_bytes).decode("ascii"),
+                    "fileName": "Owner supplied original.mp4",
+                    "mediaType": "video/mp4",
+                    "targetContext": "youtube_shorts",
+                    "accountId": "channel-1",
+                    "territory": "US",
+                    "localProcessingOperations": [
+                        "transcribe",
+                        "analyze_audio",
+                        "analyze_video",
+                        "detect_highlights",
+                        "generate_edit_plan",
+                        "render_private",
+                    ],
+                },
+            },
+        )
+    )
+    upload = websocket.messages[-1]
+    assert upload["success"] is True, upload.get("error")
+    asset = upload["payload"]["asset"]
+    assert asset["sha256"] == hashlib.sha256(source_bytes).hexdigest()
+    assert asset["fileName"] == "Owner supplied original.mp4"
+    assert asset["transferChannel"] == "direct_websocket_upload"
+    assert asset["rightsStatus"] == "local_processing_authorized"
+    assert set(asset["ownerProcessingAuthorization"]["operations"]) == {
+        "transcribe",
+        "analyze_audio",
+        "analyze_video",
+        "detect_highlights",
+        "generate_edit_plan",
+        "render_private",
+    }
+    authorization = store.get_owner_local_processing_authorization(
+        asset["ownerProcessingAuthorization"]["authorizationId"],
+        authenticator.principal,
+    )
+    assert authorization is not None
+    assert (
+        datetime.fromisoformat(asset["ownerProcessingAuthorization"]["expiresAt"])
+        == authorization.expires_at
+    )
+    assert authorization.expires_at - authorization.authorized_at == (
+        store.OWNER_LOCAL_PROCESSING_AUTHORIZATION_TTL
+    )
+
+    asyncio.run(
+        gateway.handle(
+            websocket,
+            {
+                "action": "CRE_SOURCE_RIGHTS_REQUEST",
+                "correlationId": "owner-attestation",
+                "payload": {
+                    "step": "self_attest_original",
+                    "assetId": asset["assetId"],
+                    "targetContext": "youtube_shorts",
+                    "accountScope": "channel-1",
+                    "territories": ["US"],
+                    "ownershipDeclaration": True,
+                    "ownershipBasis": (
+                        "I created and own this original footage and have rights "
+                        "to its audio and included material."
+                    ),
+                    "evidenceReference": None,
+                    "limitations": "YouTube Shorts, US territory, up to 60 seconds.",
+                    "maxDurationSeconds": 60,
+                },
+            },
+        )
+    )
+    result = websocket.messages[-1]
+    assert result["success"] is True, result
+    assert result["payload"]["rightsState"] == "self_attested"
+    assert result["payload"]["status"] == "active"
+    assert result["payload"]["independentlyVerified"] is False
+    stored = store.get_owner_rights_attestation(
+        result["payload"]["attestationId"],
+        authenticator.principal,
+    )
+    assert stored is not None
+    assert stored.asset_sha256 == asset["sha256"]
+    assert stored.transfer_channel == "direct_websocket_upload"
+    store.close()
+    gateway.operation_store.close()
+
+
+def test_owner_local_authorization_is_hash_scoped_revocable_and_local_only(tmp_path):
+    gateway, store, authenticator, _, _ = _configured_source_gateway(
+        tmp_path / "owner-local-authorization.db",
+    )
+    websocket = FakeWebSocket()
+    authenticate_test_websocket(authenticator, websocket)
+    source_bytes = _video_only_source_bytes(
+        tmp_path,
+        name="owner-local-authorization",
+    )
+    operations = [
+        "transcribe",
+        "analyze_audio",
+        "analyze_video",
+        "detect_highlights",
+        "generate_edit_plan",
+        "render_private",
+    ]
+    asyncio.run(
+        gateway.handle(
+            websocket,
+            {
+                "action": "CRE_SOURCE_VIDEO_REQUEST",
+                "correlationId": "owner-local-authorization",
+                "payload": {
+                    "videoBase64": base64.b64encode(source_bytes).decode("ascii"),
+                    "fileName": "owner-video.mp4",
+                    "mediaType": "video/mp4",
+                    "targetContext": "youtube_shorts",
+                    "accountId": "private-owner",
+                    "territory": "US",
+                    "localProcessingOperations": operations,
+                },
+            },
+        )
+    )
+    upload = websocket.messages[-1]
+    assert upload["success"] is True, upload.get("error")
+    asset = upload["payload"]["asset"]
+    authorization_id = asset["ownerProcessingAuthorization"]["authorizationId"]
+    authorization = store.get_owner_local_processing_authorization(
+        authorization_id,
+        authenticator.principal,
+    )
+    assert authorization is not None
+    assert authorization.asset_id == asset["assetId"]
+    assert authorization.asset_sha256 == hashlib.sha256(source_bytes).hexdigest()
+    assert authorization.operations == frozenset(
+        OwnerLocalProcessingOperation(value) for value in operations
+    )
+    limited_operations = ["transcribe", "analyze_audio", "detect_highlights"]
+    asyncio.run(
+        gateway.handle(
+            websocket,
+            {
+                "action": "CRE_SOURCE_VIDEO_REQUEST",
+                "correlationId": "owner-local-authorization-same-bytes",
+                "payload": {
+                    "videoBase64": base64.b64encode(source_bytes).decode("ascii"),
+                    "fileName": "same-bytes-new-asset.mp4",
+                    "mediaType": "video/mp4",
+                    "targetContext": "youtube_shorts",
+                    "accountId": "private-owner",
+                    "territory": "US",
+                    "localProcessingOperations": limited_operations,
+                },
+            },
+        )
+    )
+    second_asset = websocket.messages[-1]["payload"]["asset"]
+    assert websocket.messages[-1]["success"] is True
+    assert second_asset["assetId"] != asset["assetId"]
+    assert second_asset["sha256"] == asset["sha256"]
+    with store._transaction() as connection:
+        store.require_owner_local_processing_authorization_in_transaction(
+            connection,
+            owner_id=authenticator.principal,
+            asset_id=asset["assetId"],
+            asset_sha256=asset["sha256"],
+            operation=OwnerLocalProcessingOperation.ANALYZE_VIDEO,
+            actor=authenticator.principal,
+        )
+    with pytest.raises(PermissionError):
+        with store._transaction() as connection:
+            store.require_owner_local_processing_authorization_in_transaction(
+                connection,
+                owner_id=authenticator.principal,
+                asset_id=second_asset["assetId"],
+                asset_sha256=second_asset["sha256"],
+                operation=OwnerLocalProcessingOperation.ANALYZE_VIDEO,
+                actor=authenticator.principal,
+            )
+
+    with store._transaction() as connection:
+        store.require_owner_local_processing_authorization_in_transaction(
+            connection,
+            owner_id=authenticator.principal,
+            asset_id=asset["assetId"],
+            asset_sha256=asset["sha256"],
+            operation=OwnerLocalProcessingOperation.TRANSCRIBE,
+            actor=authenticator.principal,
+        )
+    with pytest.raises(PermissionError):
+        with store._transaction() as connection:
+            store.require_owner_local_processing_authorization_in_transaction(
+                connection,
+                owner_id="another-owner",
+                asset_id=asset["assetId"],
+                asset_sha256=asset["sha256"],
+                operation=OwnerLocalProcessingOperation.TRANSCRIBE,
+                actor="another-owner",
+            )
+    with pytest.raises(PermissionError):
+        with store._transaction() as connection:
+            store.require_owner_local_processing_authorization_in_transaction(
+                connection,
+                owner_id=authenticator.principal,
+                asset_id=asset["assetId"],
+                asset_sha256="0" * 64,
+                operation=OwnerLocalProcessingOperation.TRANSCRIBE,
+                actor=authenticator.principal,
+            )
+    with pytest.raises(PermissionError):
+        with store._transaction() as connection:
+            store.require_owner_local_processing_authorization_in_transaction(
+                connection,
+                owner_id=authenticator.principal,
+                asset_id="unrelated-asset",
+                asset_sha256=asset["sha256"],
+                operation=OwnerLocalProcessingOperation.TRANSCRIBE,
+                actor=authenticator.principal,
+            )
+    asyncio.run(
+        gateway.handle(
+            websocket,
+            {
+                "action": "CRE_SOURCE_RIGHTS_REQUEST",
+                "correlationId": "owner-local-authorization-renew-wrong-hash",
+                "payload": {
+                    "step": "renew_local_processing_authorization",
+                    "assetId": asset["assetId"],
+                    "assetSha256": "0" * 64,
+                    "operations": operations,
+                    "reason": "Attempt to renew altered media.",
+                },
+            },
+        )
+    )
+    assert websocket.messages[-1]["success"] is False
+    assert (
+        store.get_owner_local_processing_authorization(
+            authorization_id,
+            authenticator.principal,
+        ).revoked_at
+        is None
+    )
+    asyncio.run(
+        gateway.handle(
+            websocket,
+            {
+                "action": "CRE_SOURCE_RIGHTS_REQUEST",
+                "correlationId": "owner-local-authorization-renew-active",
+                "payload": {
+                    "step": "renew_local_processing_authorization",
+                    "assetId": asset["assetId"],
+                    "assetSha256": asset["sha256"],
+                    "operations": operations,
+                    "reason": "Owner renewed active local-processing permission.",
+                },
+            },
+        )
+    )
+    active_renewal_result = websocket.messages[-1]
+    assert active_renewal_result["success"] is True, active_renewal_result.get(
+        "error"
+    )
+    active_renewed_id = active_renewal_result["payload"]["authorizationId"]
+    assert active_renewed_id != authorization_id
+    assert (
+        store.get_owner_local_processing_authorization(
+            authorization_id,
+            authenticator.principal,
+        ).revoked_at
+        is not None
+    )
+    asyncio.run(
+        gateway.handle(
+            websocket,
+            {
+                "action": "CRE_SOURCE_RIGHTS_REQUEST",
+                "correlationId": "owner-local-authorization-revoke",
+                "payload": {
+                    "step": "revoke_local_processing_authorization",
+                    "authorizationId": active_renewed_id,
+                    "reason": "Owner withdrew local-processing permission.",
+                },
+            },
+        )
+    )
+    revoked = websocket.messages[-1]
+    assert revoked["success"] is True, revoked
+    assert revoked["payload"]["revokedAt"] is not None
+    assert store.get_owner_local_processing_authorization(
+        active_renewed_id,
+        authenticator.principal,
+    ).revoked_at is not None
+    with pytest.raises(PermissionError):
+        with store._transaction() as connection:
+            store.require_owner_local_processing_authorization_in_transaction(
+                connection,
+                owner_id=authenticator.principal,
+                asset_id=asset["assetId"],
+                asset_sha256=asset["sha256"],
+                operation=OwnerLocalProcessingOperation.TRANSCRIBE,
+                actor=authenticator.principal,
+            )
+    events = store.list_owner_local_processing_events(
+        authorization_id,
+        authenticator.principal,
+    )
+    assert [event["event_type"] for event in events] == [
+        "authorized",
+        "operation_authorized",
+        "operation_authorized",
+        "revoked",
+    ]
+    assert all("secret" not in str(event).lower() for event in events)
+    asyncio.run(
+        gateway.handle(
+            websocket,
+            {
+                "action": "CRE_SOURCE_RIGHTS_REQUEST",
+                "correlationId": "owner-local-authorization-renew-invalid-scope",
+                "payload": {
+                    "step": "renew_local_processing_authorization",
+                    "assetId": asset["assetId"],
+                    "assetSha256": asset["sha256"],
+                    "operations": ["public_publish"],
+                    "reason": "Attempt to add a publishing scope.",
+                },
+            },
+        )
+    )
+    assert websocket.messages[-1]["success"] is False
+    asyncio.run(
+        gateway.handle(
+            websocket,
+            {
+                "action": "CRE_SOURCE_RIGHTS_REQUEST",
+                "correlationId": "owner-local-authorization-renew",
+                "payload": {
+                    "step": "renew_local_processing_authorization",
+                    "assetId": asset["assetId"],
+                    "assetSha256": asset["sha256"],
+                    "operations": operations,
+                    "reason": "Owner renewed private local-processing permission.",
+                },
+            },
+        )
+    )
+    renewed_result = websocket.messages[-1]
+    assert renewed_result["success"] is True, renewed_result.get("error")
+    renewed_id = renewed_result["payload"]["authorizationId"]
+    assert renewed_id not in {authorization_id, active_renewed_id}
+    renewed = store.get_owner_local_processing_authorization(
+        renewed_id,
+        authenticator.principal,
+    )
+    assert renewed is not None
+    assert renewed.asset_id == asset["assetId"]
+    assert renewed.asset_sha256 == asset["sha256"]
+    assert renewed.operations == frozenset(
+        OwnerLocalProcessingOperation(value) for value in operations
+    )
+    assert renewed.expires_at - renewed.authorized_at == timedelta(days=365)
+    renewed_events = store.list_owner_local_processing_events(
+        renewed_id,
+        authenticator.principal,
+    )
+    assert [event["event_type"] for event in renewed_events] == ["authorized"]
+    assert "renewal" in renewed_events[0]["reason"]
+    with store._transaction() as connection:
+        store.require_owner_local_processing_authorization_in_transaction(
+            connection,
+            owner_id=authenticator.principal,
+            asset_id=asset["assetId"],
+            asset_sha256=asset["sha256"],
+            operation=OwnerLocalProcessingOperation.TRANSCRIBE,
+            actor=authenticator.principal,
+        )
+    with pytest.raises(ValueError):
+        OwnerLocalProcessingOperation("public_publish")
+    store.close()
+    gateway.operation_store.close()
+
+
+def test_unauthenticated_owner_local_upload_is_rejected_before_registration(tmp_path):
+    gateway, store, _, _, _ = _configured_source_gateway(
+        tmp_path / "unauthenticated-owner-upload.db",
+    )
+    websocket = FakeWebSocket()
+    source_bytes = _video_only_source_bytes(
+        tmp_path,
+        name="unauthenticated-owner-upload",
+    )
+    asyncio.run(
+        gateway.handle(
+            websocket,
+            {
+                "action": "CRE_SOURCE_VIDEO_REQUEST",
+                "correlationId": "unauthenticated-owner-upload",
+                "payload": {
+                    "videoBase64": base64.b64encode(source_bytes).decode("ascii"),
+                    "fileName": "owner-video.mp4",
+                    "mediaType": "video/mp4",
+                    "targetContext": "youtube_shorts",
+                    "accountId": "untrusted-client-owner",
+                    "territory": "US",
+                    "localProcessingOperations": ["transcribe"],
+                },
+            },
+        )
+    )
+    assert websocket.messages[-1]["status"] == "AUTHENTICATION_REQUIRED"
+    assert store._connection.execute(
+        "SELECT COUNT(*) FROM content_assets"
+    ).fetchone()[0] == 0
+    store.close()
+    gateway.operation_store.close()
+
+
+def test_authenticated_owner_upload_transcribes_plans_and_renders_private(
+    tmp_path,
+):
+    gateway, store, authenticator, clip_service, storage = _configured_source_gateway(
+        tmp_path / "owner-local-workflow.db",
+    )
+    websocket = FakeWebSocket()
+    authenticate_test_websocket(authenticator, websocket)
+    source_bytes = _source_video_bytes(tmp_path)
+    operations = [
+        "transcribe",
+        "analyze_audio",
+        "analyze_video",
+        "detect_highlights",
+        "generate_edit_plan",
+        "render_private",
+    ]
+    asyncio.run(
+        gateway.handle(
+            websocket,
+            {
+                "action": "CRE_SOURCE_VIDEO_REQUEST",
+                "correlationId": "owner-local-workflow-upload",
+                "payload": {
+                    "videoBase64": base64.b64encode(source_bytes).decode("ascii"),
+                    "fileName": "owner-local-workflow.mp4",
+                    "mediaType": "video/mp4",
+                    "targetContext": "youtube_shorts",
+                    "accountId": "private-owner",
+                    "territory": "US",
+                    "localProcessingOperations": operations,
+                },
+            },
+        )
+    )
+    upload = websocket.messages[-1]
+    assert upload["success"] is True, upload.get("error")
+    asset_summary = upload["payload"]["asset"]
+    asset = store.get_asset(asset_summary["assetId"])
+    assert asset is not None
+    assert asset.content_sha256 == hashlib.sha256(source_bytes).hexdigest()
+    assert set(asset_summary["ownerProcessingAuthorization"]["operations"]) == set(
+        operations
+    )
+    use = gateway._cre_target_use(
+        asset_id=asset.asset_id,
+        asset_sha256=asset.content_sha256,
+        target=ContentTargetContext.YOUTUBE_SHORTS,
+        account_id="private-owner",
+        territory="US",
+        action=RightsAction.ANALYZE,
+        duration_seconds=math.ceil(asset_summary["durationSeconds"]),
+    )
+    intelligence = ContentIntelligenceService(
+        content_rights=clip_service.content_rights,
+        transcription_engine=FakeTranscriptionEngine(),
+        media_renderer=clip_service.renderer,
+    )
+    request_sequence = 0
+
+    def invoke(action, parameters, function, **kwargs):
+        nonlocal request_sequence
+        request_sequence += 1
+        correlation_id = f"owner-local-workflow-{request_sequence}"
+        context = gateway._cre_authorization_context(
+            websocket,
+            correlation_id,
+            action=action,
+            parameters=parameters,
+        )
+        return function(
+            context=context,
+            command_id=correlation_id,
+            **kwargs,
+        )
+
+    config = TranscriptionConfig()
+    transcription_payload = {
+        "use": use.model_dump(mode="json"),
+        "target_context": ContentTargetContext.YOUTUBE_SHORTS.value,
+        "config": config.model_dump(mode="json"),
+    }
+    job = invoke(
+        "content_create_transcription_job",
+        transcription_payload,
+        intelligence.create_transcription_job,
+        use=use,
+        target_context=ContentTargetContext.YOUTUBE_SHORTS,
+        config=config,
+    )
+    transcript = invoke(
+        "content_run_transcription_job",
+        {"job_id": job.job_id},
+        intelligence.run_transcription_job,
+        job_id=job.job_id,
+    )
+    invoke(
+        "content_read_transcript",
+        {"transcript_id": transcript.transcript_id},
+        intelligence.get_transcript,
+        transcript_id=transcript.transcript_id,
+    )
+    highlight_config = HighlightConfig()
+    highlights = invoke(
+        "content_generate_highlights",
+        {
+            "transcript_id": transcript.transcript_id,
+            "config": highlight_config.model_dump(mode="json"),
+        },
+        intelligence.generate_highlights,
+        transcript_id=transcript.transcript_id,
+        config=highlight_config,
+    )
+    project = ContentEditProject(
+        project_id="owner-local-workflow-project",
+        owner_id=authenticator.principal,
+        source_asset_ids=(asset.asset_id,),
+        script="Create a private local review edit.",
+    )
+    invoke(
+        "content_create_edit_project",
+        project.model_dump(mode="json"),
+        clip_service.content_rights.create_edit_project,
+        project=project,
+    )
+    instruction = "Create a short private review edit."
+    plan = invoke(
+        "content_autoplan_edit_project",
+        {
+            "project_id": project.project_id,
+            "instruction_length": len(instruction),
+        },
+        clip_service.autoplan_edit_project,
+        project_id=project.project_id,
+        instruction=instruction,
+    )
+    render_use = RightsUse(
+        asset_id=asset.asset_id,
+        expected_asset_sha256=asset.content_sha256,
+        platform=ContentPlatform.YOUTUBE,
+        account_id="private-owner",
+        territory="US",
+        actions=frozenset({RightsAction.EDIT, RightsAction.CREATE_DERIVATIVE}),
+        commercial_intent=False,
+        monetization_intent=False,
+        duration_seconds=math.ceil(plan["targetDurationSeconds"]),
+    )
+    rendered = invoke(
+        "content_render_edit_project",
+        {
+            "project_id": project.project_id,
+            "asset_ids": [asset.asset_id],
+            "vertical": True,
+        },
+        clip_service.render_edit_project,
+        project_id=project.project_id,
+        rights_uses={asset.asset_id: render_use},
+        vertical=True,
+    )
+    output_path = tmp_path / "owner-local-workflow-private.mp4"
+    output_path.write_bytes(
+        storage.read_clip_output(
+            str(rendered["artifactId"]),
+            str(rendered["sha256"]),
+        )
+    )
+    probe = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration:stream=codec_type",
+            "-of",
+            "json",
+            str(output_path),
+        ],
+        capture_output=True,
+        check=False,
+        timeout=20,
+    )
+    assert probe.returncode == 0, probe.stderr.decode(errors="replace")
+    media = json.loads(probe.stdout)
+    assert {stream["codec_type"] for stream in media["streams"]} == {"audio", "video"}
+    assert float(media["format"]["duration"]) == pytest.approx(
+        rendered["durationSeconds"],
+        abs=0.25,
+    )
+    decoded = subprocess.run(
+        [
+            "ffmpeg",
+            "-nostdin",
+            "-v",
+            "error",
+            "-i",
+            str(output_path),
+            "-f",
+            "null",
+            "-",
+        ],
+        capture_output=True,
+        check=False,
+        timeout=30,
+    )
+    assert decoded.returncode == 0, decoded.stderr.decode(errors="replace")
+    assert transcript.asset_id == asset.asset_id
+    assert highlights.transcript_id == transcript.transcript_id
+    assert plan["projectId"] == project.project_id
+    assert store._connection.execute(
+        "SELECT COUNT(*) FROM rights_grants WHERE asset_id = ?",
+        (asset.asset_id,),
+    ).fetchone()[0] == 0
+    assert store.get_latest_asset_license_record(
+        asset.asset_id,
+        authenticator.principal,
+    ) is None
+    store.close()
+    gateway.operation_store.close()
+
+
+def test_source_upload_recovers_after_registration_transaction_failure(
+    tmp_path,
+    monkeypatch,
+):
+    gateway, store, authenticator, _, storage = _configured_source_gateway(
+        tmp_path / "upload-recovery.db",
+    )
+    websocket = FakeWebSocket()
+    authenticate_test_websocket(authenticator, websocket)
+    request_id = _create_upload_request(
+        gateway,
+        store,
+        websocket,
+        key="upload-recovery",
+    )
+    source_bytes = _video_only_source_bytes(
+        tmp_path,
+        name="gateway-upload-recovery",
+    )
+    original_bind = store.bind_content_acquisition_asset_in_transaction
+    calls = 0
+
+    def fail_once(connection, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("Injected failure before acquisition commit.")
+        return original_bind(connection, **kwargs)
+
+    monkeypatch.setattr(
+        store,
+        "bind_content_acquisition_asset_in_transaction",
+        fail_once,
+    )
+    upload_message = {
+        "action": "CRE_SOURCE_VIDEO_REQUEST",
+        "correlationId": "upload-recovery-first-attempt",
+        "payload": {
+            "videoBase64": base64.b64encode(source_bytes).decode("ascii"),
+            "fileName": "recoverable-source.mp4",
+            "mediaType": "video/mp4",
+            "targetContext": "youtube_shorts",
+            "accountId": "private-local-owner",
+            "territory": "US",
+            "acquisitionRequestId": request_id,
+        },
+    }
+    asyncio.run(gateway.handle(websocket, upload_message))
+    assert websocket.messages[-1]["success"] is False
+    assert store.get_content_acquisition_request(request_id).asset_id is None
+    assert store._connection.execute(
+        "SELECT COUNT(*) FROM content_assets",
+    ).fetchone()[0] == 0
+    assert tuple((storage._root / "inputs").iterdir()) == ()
+
+    monkeypatch.setattr(
+        store,
+        "bind_content_acquisition_asset_in_transaction",
+        original_bind,
+    )
+    upload_message["correlationId"] = "upload-recovery-retry"
+    asyncio.run(gateway.handle(websocket, upload_message))
+    response = websocket.messages[-1]
+    assert response["success"] is True
+    asset_id = response["payload"]["asset"]["assetId"]
+    asset = store.get_asset(asset_id)
+    assert asset.content_sha256 == hashlib.sha256(source_bytes).hexdigest()
+    assert store.get_content_acquisition_request(request_id).asset_id == asset_id
+    assert store._connection.execute(
+        "SELECT COUNT(*) FROM content_assets",
+    ).fetchone()[0] == 1
+    assert calls == 1
     store.close()
     gateway.operation_store.close()
 
@@ -360,6 +1437,12 @@ def test_authorized_folder_registration_registers_video_only_footage(
     gateway.cre_import_directory = import_directory
     websocket = FakeWebSocket()
     authenticate_test_websocket(authenticator, websocket)
+    request_id = _create_upload_request(
+        gateway,
+        store,
+        websocket,
+        key="folder-video-only-upload",
+    )
 
     asyncio.run(
         gateway.handle(
@@ -386,6 +1469,7 @@ def test_authorized_folder_registration_registers_video_only_footage(
                     "targetContext": "youtube_shorts",
                     "accountId": "private-local-owner",
                     "territory": "US",
+                    "acquisitionRequestId": request_id,
                 },
             },
         )
@@ -423,6 +1507,12 @@ def test_source_upload_rejects_unsupported_and_corrupt_media(
     )
     websocket = FakeWebSocket()
     authenticate_test_websocket(authenticator, websocket)
+    request_id = _create_upload_request(
+        gateway,
+        store,
+        websocket,
+        key=f"reject-{file_name}",
+    )
     asyncio.run(
         gateway.handle(
             websocket,
@@ -436,6 +1526,7 @@ def test_source_upload_rejects_unsupported_and_corrupt_media(
                     "targetContext": "youtube_shorts",
                     "accountId": "private-local-owner",
                     "territory": "US",
+                    "acquisitionRequestId": request_id,
                 },
             },
         )
@@ -461,6 +1552,12 @@ def test_source_upload_rejects_oversized_input_before_media_probe(
     )
     websocket = FakeWebSocket()
     authenticate_test_websocket(authenticator, websocket)
+    request_id = _create_upload_request(
+        gateway,
+        store,
+        websocket,
+        key="oversized-source-upload",
+    )
     source_bytes = b"x" * (1024 * 1024 + 1)
     asyncio.run(
         gateway.handle(
@@ -475,6 +1572,7 @@ def test_source_upload_rejects_oversized_input_before_media_probe(
                     "targetContext": "youtube_shorts",
                     "accountId": "private-local-owner",
                     "territory": "US",
+                    "acquisitionRequestId": request_id,
                 },
             },
         )
@@ -573,6 +1671,12 @@ def test_source_upload_stays_pending_and_asset_rights_review_uses_distinct_princ
     reviewer_socket = FakeWebSocket()
     authenticator.authenticate(owner_socket, owner_token)
     authenticator.authenticate(reviewer_socket, reviewer_token)
+    request_id = _create_upload_request(
+        gateway,
+        store,
+        owner_socket,
+        key="rights-review-source-upload",
+    )
     video_bytes = _source_video_bytes(tmp_path)
 
     asyncio.run(
@@ -587,6 +1691,7 @@ def test_source_upload_stays_pending_and_asset_rights_review_uses_distinct_princ
                     "targetContext": "youtube_shorts",
                     "accountId": "channel-1",
                     "territory": "US",
+                    "acquisitionRequestId": request_id,
                 },
             },
         )
@@ -594,10 +1699,37 @@ def test_source_upload_stays_pending_and_asset_rights_review_uses_distinct_princ
     upload = owner_socket.messages[-1]
     asset = upload["payload"]["asset"]
     assert upload["status"] == "SOURCE_REGISTERED"
-    assert asset["rightsStatus"] == "PENDING_REVIEW"
+    assert asset["acquisitionRequestId"] == request_id
+    assert asset["acquisitionState"] == "awaiting_rights"
+    assert asset["rightsStatus"] == "pending_asset_evaluation"
+    request = store.get_content_acquisition_request(request_id)
+    assert request.asset_id == asset["assetId"]
+    assert request.state.value == "awaiting_rights"
     assert store.get_asset(asset["assetId"]).content_sha256 == hashlib.sha256(video_bytes).hexdigest()
     assert store._connection.execute(
         "SELECT COUNT(*) FROM content_processing_jobs"
+    ).fetchone()[0] == 0
+
+    asyncio.run(
+        gateway.handle(
+            owner_socket,
+            {
+                "action": "CRE_SOURCE_VIDEO_RESUME_REQUEST",
+                "correlationId": "resume-before-intended-use-clearance",
+                "payload": {
+                    "assetId": asset["assetId"],
+                    "targetContext": "youtube_shorts",
+                    "accountId": "channel-1",
+                    "territory": "US",
+                },
+            },
+        )
+    )
+    assert owner_socket.messages[-1]["success"] is False
+    assert fixture_engine.calls == 0
+    assert store._connection.execute(
+        "SELECT COUNT(*) FROM content_processing_jobs WHERE asset_id = ?",
+        (asset["assetId"],),
     ).fetchone()[0] == 0
 
     evidence_bytes = b"fixture rights agreement evidence"
@@ -607,6 +1739,7 @@ def test_source_upload_stays_pending_and_asset_rights_review_uses_distinct_princ
         "territories": ["US"],
         "permitted_actions": [
             RightsAction.ANALYZE.value,
+            RightsAction.EDIT.value,
             RightsAction.CREATE_DERIVATIVE.value,
         ],
         "valid_from": (datetime.now(UTC) - timedelta(minutes=1)).isoformat(),
@@ -638,7 +1771,7 @@ def test_source_upload_stays_pending_and_asset_rights_review_uses_distinct_princ
         )
     )
     submitted = owner_socket.messages[-1]
-    assert submitted["success"] is True
+    assert submitted["success"] is True, submitted
     ids = submitted["payload"]
     assert ids["assetSha256"] == asset["sha256"]
     assert ids["rightsStatus"] == "PENDING_INDEPENDENT_REVIEW"
@@ -783,6 +1916,27 @@ def test_source_upload_stays_pending_and_asset_rights_review_uses_distinct_princ
     current_status = owner_socket.messages[-1]
     assert current_status["success"] is True
     assert current_status["payload"]["analysisRightsStatus"] == "cleared"
+    assert current_status["payload"]["intendedUseRightsStatus"] == "cleared"
+    assert current_status["payload"]["acquisitionState"] == "completed"
+    assert current_status["payload"]["acquisitionRightsStatus"] == "cleared"
+    assert store.get_content_acquisition_request(request_id).state.value == "completed"
+    asyncio.run(
+        gateway.handle(
+            owner_socket,
+            {
+                "action": "CRE_SOURCE_ASSET_STATUS_REQUEST",
+                "correlationId": "asset-rights-status-retry",
+                "payload": {
+                    "assetId": asset["assetId"],
+                    "targetContext": "youtube_shorts",
+                    "accountId": "channel-1",
+                    "territory": "US",
+                },
+            },
+        )
+    )
+    assert owner_socket.messages[-1]["success"] is True
+    assert owner_socket.messages[-1]["payload"]["acquisitionState"] == "completed"
 
     resume_payload = {
         "assetId": asset["assetId"],
@@ -1163,6 +2317,7 @@ def test_cre_folder_registration_reopens_only_current_scanned_file_and_delegates
                     "targetContext": "youtube_shorts",
                     "accountId": "channel-1",
                     "territory": "US",
+                    "acquisitionRequestId": "selected-request-id",
                 },
             },
         )
@@ -1192,6 +2347,7 @@ def test_cre_folder_registration_reopens_only_current_scanned_file_and_delegates
                     "targetContext": "youtube_shorts",
                     "accountId": "channel-1",
                     "territory": "US",
+                    "acquisitionRequestId": "selected-request-id",
                 },
             },
         )
@@ -1211,6 +2367,7 @@ def test_cre_folder_registration_reopens_only_current_scanned_file_and_delegates
         "targetContext",
         "accountId",
         "territory",
+        "acquisitionRequestId",
     }
 
     outside_file = tmp_path / "outside.mp4"
@@ -1248,6 +2405,7 @@ def test_cre_folder_register_rejects_client_supplied_paths_and_unauthenticated_r
             "targetContext": "youtube_shorts",
             "accountId": "channel-1",
             "territory": "US",
+            "acquisitionRequestId": "selected-request-id",
         },
     }
     authenticate_test_websocket(authenticator, websocket)

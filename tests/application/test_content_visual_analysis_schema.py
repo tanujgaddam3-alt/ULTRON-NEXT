@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
 
 from ultron.application.content.status import _verify_existing_database
 from ultron.application.content.store import ContentStore
+from tests.application.schema_test_utils import set_legacy_schema_version
 
 
 def _insert_project_and_asset(store: ContentStore) -> None:
@@ -49,28 +51,135 @@ def _version(store: ContentStore) -> int:
 def test_fresh_and_existing_supported_base_schema_do_not_implicitly_upgrade(tmp_path):
     database = tmp_path / "isolated-fresh.db"
     store = ContentStore(database)
-    assert _version(store) == ContentStore.SCHEMA_VERSION == 7
+    assert _version(store) == ContentStore.SCHEMA_VERSION == 10
     store.close()
 
     reopened = ContentStore(database)
-    assert _version(reopened) == 7
+    assert _version(reopened) == 10
     assert reopened._connection.execute(
         """
         SELECT COUNT(*) FROM sqlite_master
         WHERE type = 'table' AND name = 'content_publishing_attempts'
         """
-    ).fetchone()[0] == 0
+    ).fetchone()[0] == 1
     assert reopened._connection.execute(
         """
         SELECT COUNT(*) FROM sqlite_master
         WHERE type = 'table' AND name = 'content_private_render_operations'
         """
-    ).fetchone()[0] == 0
+    ).fetchone()[0] == 1
     reopened.close()
+
+
+def test_fresh_v10_schema_is_complete_and_initialization_is_idempotent(tmp_path):
+    database = tmp_path / "fresh-v10.db"
+    store = ContentStore(database)
+    assert _version(store) == 10
+    ContentStore.verify_complete_runtime_schema(store._connection)
+    assert store._connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+    assert store._connection.execute("PRAGMA foreign_key_check").fetchall() == []
+    initial_inventory = store._connection.execute(
+        """
+        SELECT type, name, tbl_name, sql FROM sqlite_master
+        WHERE type IN ('table', 'index', 'trigger')
+          AND name NOT LIKE 'sqlite_%'
+        ORDER BY type, name
+        """
+    ).fetchall()
+    store.close()
+
+    reopened = ContentStore(database)
+    repeated_inventory = reopened._connection.execute(
+        """
+        SELECT type, name, tbl_name, sql FROM sqlite_master
+        WHERE type IN ('table', 'index', 'trigger')
+          AND name NOT LIKE 'sqlite_%'
+        ORDER BY type, name
+        """
+    ).fetchall()
+    assert [tuple(row) for row in repeated_inventory] == [
+        tuple(row) for row in initial_inventory
+    ]
+    reopened.close()
+
+
+def test_failed_fresh_initialization_rolls_back_schema_version_and_ddl(
+    tmp_path,
+    monkeypatch,
+):
+    database = tmp_path / "interrupted-fresh.db"
+    original = ContentStore._create_private_render_operation_tables
+
+    def fail_after_partial_create(connection):
+        connection.execute(
+            "CREATE TABLE interrupted_initialization (id INTEGER PRIMARY KEY)"
+        )
+        raise RuntimeError("synthetic initialization interruption")
+
+    monkeypatch.setattr(
+        ContentStore,
+        "_create_private_render_operation_tables",
+        staticmethod(fail_after_partial_create),
+    )
+    with pytest.raises(RuntimeError, match="synthetic initialization interruption"):
+        ContentStore(database)
+
+    connection = sqlite3.connect(database)
+    try:
+        assert connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' "
+            "AND name NOT LIKE 'sqlite_%'"
+        ).fetchall() == []
+    finally:
+        connection.close()
+
+    monkeypatch.setattr(
+        ContentStore,
+        "_create_private_render_operation_tables",
+        staticmethod(original),
+    )
+    recovered = ContentStore(database)
+    assert _version(recovered) == 10
+    recovered.close()
+
+
+def test_concurrent_fresh_initialization_serializes_complete_v10_schema(tmp_path):
+    database = tmp_path / "concurrent-fresh.db"
+
+    def initialize():
+        store = ContentStore(database)
+        try:
+            return _version(store)
+        finally:
+            store.close()
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        assert list(pool.map(lambda _: initialize(), range(4))) == [10] * 4
+
+    store = ContentStore(database)
+    ContentStore.verify_complete_runtime_schema(store._connection)
+    assert store._connection.execute("PRAGMA foreign_key_check").fetchall() == []
+    store.close()
+
+
+def test_incomplete_schema_marked_v10_is_rejected_without_repair(tmp_path):
+    database = tmp_path / "incomplete-v10.db"
+    store = ContentStore(database)
+    store._connection.execute(
+        "DROP TRIGGER content_private_render_operation_identity_immutable"
+    )
+    store.close()
+    before_bytes = database.read_bytes()
+
+    with pytest.raises(RuntimeError, match="incomplete or inconsistent"):
+        ContentStore(database)
+
+    assert database.read_bytes() == before_bytes
 
 
 def test_schema_migrations_require_deterministic_order_and_are_idempotent(tmp_path):
     store = ContentStore(tmp_path / "isolated-sequence.db")
+    set_legacy_schema_version(store, 7)
     _insert_project_and_asset(store)
 
     with pytest.raises(RuntimeError, match="schema-v9"):
@@ -330,6 +439,7 @@ def test_runtime_gate_rejects_base_schema_until_explicit_migrations_complete(
 ):
     database = tmp_path / "isolated-base.db"
     store = ContentStore(database)
+    set_legacy_schema_version(store, 7)
     store.close()
     with pytest.raises(RuntimeError, match="current runtime version"):
         _verify_existing_database(database)
@@ -342,6 +452,7 @@ def test_runtime_gate_rejects_base_schema_until_explicit_migrations_complete(
 
     store = ContentStore(database)
     assert store.migrate_private_render_operation_schema() == 10
+    assert store.migrate_source_identity_schema() == 1
     store.close()
     before_bytes = database.read_bytes()
     _verify_existing_database(database)
@@ -404,6 +515,7 @@ def test_missing_or_malformed_schema_metadata_is_rejected(tmp_path):
 
 def test_failed_migration_rolls_back_partial_ddl_and_version(tmp_path, monkeypatch):
     store = ContentStore(tmp_path / "isolated-interrupted.db")
+    set_legacy_schema_version(store, 7)
     assert store.migrate_publishing_attempt_schema() == 9
 
     def fail_after_partial_create(connection):

@@ -270,6 +270,29 @@ def test_portfolio_risk_blocks_single_position_limit():
     assert "single-position" in result["reason"].lower()
 
 
+def test_portfolio_risk_counts_existing_same_symbol_exposure():
+    engine = PortfolioRiskEngine(
+        PortfolioRiskLimits(max_single_position_percent=15.0)
+    )
+
+    result = engine.evaluate(
+        equity=100_000.0,
+        positions={
+            "TEST": {
+                "quantity": 100.0,
+                "price": 100.0,
+            }
+        },
+        proposed_symbol="test",
+        proposed_value=10_000.0,
+    )
+
+    assert result["approved"] is False
+    assert result["projected_position_value"] == pytest.approx(20_000.0)
+    assert result["proposed_position_percent"] == pytest.approx(20.0)
+    assert "single-position" in result["reason"].lower()
+
+
 def test_portfolio_risk_blocks_total_exposure():
     engine = PortfolioRiskEngine(
         PortfolioRiskLimits(
@@ -320,6 +343,32 @@ def test_portfolio_risk_blocks_currency_exposure():
     assert "currency exposure" in (
         result["reason"].lower()
     )
+
+
+def test_portfolio_risk_reports_missing_currency_and_correlation_inputs():
+    result = PortfolioRiskEngine().evaluate(
+        equity=100_000.0,
+        positions={
+            "AAPL": {
+                "quantity": 10,
+                "price": 100,
+            }
+        },
+        proposed_symbol="TEST",
+        proposed_value=10_000.0,
+        proposed_currency=None,
+    )
+
+    assert result["approved"] is True
+    assert result["currency_exposure_supported"] is False
+    assert result["correlation_risk_supported"] is False
+    assert "currency_exposure_missing_currency_metadata" in (
+        result["unsupported_dimensions"]
+    )
+    assert "correlation_risk_missing_verified_matrix" in (
+        result["unsupported_dimensions"]
+    )
+    assert result["currency_exposure"] is None
 
 
 @pytest.mark.parametrize("invalid_value", [math.nan, math.inf, -math.inf])

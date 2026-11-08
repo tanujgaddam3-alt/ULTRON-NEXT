@@ -47,10 +47,29 @@ SERVICE_SHUTDOWN_STEPS = (
 )
 SERVICE_KILL_WAIT = 2.0
 GATEWAY_SHUTDOWN_STEPS = (
-    (signal.SIGINT, 8.0),
+    (signal.SIGINT, 14.0),
     (signal.SIGTERM, 3.0),
 )
 GATEWAY_KILL_WAIT = 2.0
+GATEWAY_LIFECYCLE_STATES = frozenset({
+    "STOPPED",
+    "STARTING",
+    "RUNNING",
+    "QUIESCING",
+    "QUIESCED",
+    "RECOVERING",
+    "FAILED",
+})
+GATEWAY_LIFECYCLE_TRANSITIONS = {
+    "STOPPED": {"STARTING"},
+    "STARTING": {"RUNNING", "FAILED", "STOPPED"},
+    "RUNNING": {"QUIESCING", "FAILED"},
+    "QUIESCING": {"QUIESCED", "RECOVERING", "FAILED", "RUNNING", "STOPPED"},
+    "QUIESCED": {"RECOVERING"},
+    "RECOVERING": {"RUNNING", "FAILED", "QUIESCED"},
+    "FAILED": {"STARTING", "RECOVERING", "STOPPED", "QUIESCING"},
+}
+GATEWAY_LIFECYCLE_HISTORY_LIMIT = 32
 WEBSOCKET_PATH = "/ultron/stream"
 TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_-]{43,}$")
 SECRET_ASSIGNMENT = re.compile(
@@ -146,6 +165,18 @@ def _validate_operator_attestation(attestation: object, now: float | None = None
         if attestation[field] is not True:
             return "INVALID_ATTESTATION_CONFIRMATION"
     return None
+
+
+def _request_shutdown_on_sigterm(_signum: int, _frame: object) -> None:
+    raise KeyboardInterrupt
+
+
+def _configure_manager_signal_policy() -> None:
+    """Keep the supervisor alive on terminal hangup; explicit signals stop it."""
+    if threading.current_thread() is not threading.main_thread():
+        return
+    signal.signal(signal.SIGHUP, signal.SIG_IGN)
+    signal.signal(signal.SIGTERM, _request_shutdown_on_sigterm)
 
 
 def _read_proc(pid: int) -> tuple[Path, Path, list[str], int, int] | None:
@@ -354,6 +385,7 @@ def request_gateway_control_operation(
     timeout: float = 60.0,
 ) -> dict:
     if operation not in {
+        "stop-stack",
         "restart-gateway",
         "quiesce-gateway",
         "resume-gateway",
@@ -454,6 +486,7 @@ class ServiceManager:
         self._control_thread: threading.Thread | None = None
         self._control_requests: queue.Queue = queue.Queue()
         self._startup_recovery_requires_intervention = False
+        self._shutdown_requested = False
 
     def acquire_manager_lease(self) -> None:
         """Fence modern manager instances and refuse handoff from legacy ones."""
@@ -546,6 +579,168 @@ class ServiceManager:
         os.close(self._manager_lease_descriptor)
         self._manager_lease_descriptor = None
 
+    def _project_manager_process(self, pid: int) -> bool | None:
+        proc = _read_proc(pid)
+        if proc is None:
+            return None
+        script_path = str((self.root / "scripts/ultron_service_manager.py").resolve())
+        return (
+            proc[1] == self.root
+            and script_path in proc[2]
+            and "start" in proc[2]
+        )
+
+    def _manager_ownership_status(self) -> str:
+        try:
+            lease_info = self.manager_lease_path.lstat()
+            if (
+                not stat.S_ISREG(lease_info.st_mode)
+                or lease_info.st_uid != os.getuid()
+                or stat.S_IMODE(lease_info.st_mode) & 0o077
+            ):
+                return "NOT_VERIFIED"
+            this_manager_lease = False
+            if self._manager_lease_descriptor is not None:
+                owned_info = os.fstat(self._manager_lease_descriptor)
+                this_manager_lease = (
+                    owned_info.st_dev == lease_info.st_dev
+                    and owned_info.st_ino == lease_info.st_ino
+                )
+
+            lock_rows = []
+            lock_text = Path("/proc/locks").read_text(encoding="ascii")
+            for line in lock_text.splitlines():
+                fields = line.split()
+                if len(fields) < 6 or fields[1] != "FLOCK":
+                    continue
+                device, inode = fields[5].rsplit(":", 1)
+                major, minor = device.split(":", 1)
+                if (
+                    int(major, 16) == os.major(lease_info.st_dev)
+                    and int(minor, 16) == os.minor(lease_info.st_dev)
+                    and int(inode) == lease_info.st_ino
+                ):
+                    lock_rows.append(int(fields[4]))
+        except (OSError, ValueError, IndexError):
+            return "NOT_VERIFIED"
+
+        if this_manager_lease and os.getpid() in lock_rows:
+            return "HELD_BY_THIS_MANAGER"
+        if len(lock_rows) > 1:
+            return "AMBIGUOUS"
+        if lock_rows:
+            manager_match = self._project_manager_process(lock_rows[0])
+            if manager_match is None:
+                return "OWNER_UNVERIFIED"
+            return "HELD_BY_PROJECT_MANAGER" if manager_match else "HELD_BY_UNKNOWN_PROCESS"
+
+        try:
+            for entry in Path("/proc").iterdir():
+                if not entry.name.isdecimal():
+                    continue
+                manager_match = self._project_manager_process(int(entry.name))
+                if manager_match:
+                    return "LEGACY_MANAGER_PRESENT"
+                if manager_match is None and entry.name == str(os.getpid()):
+                    return "NOT_VERIFIED"
+        except OSError:
+            return "NOT_VERIFIED"
+        return "NOT_HELD"
+
+    @staticmethod
+    def _quiesce_process_status(quiesce: object) -> str:
+        if not isinstance(quiesce, dict):
+            return "NOT_VERIFIED"
+        process = quiesce.get("process")
+        if not isinstance(process, dict):
+            return "IDENTITY_UNAVAILABLE"
+        pid = process.get("pid")
+        start_ticks = process.get("start_ticks")
+        if type(pid) is not int or pid <= 0 or type(start_ticks) is not int or start_ticks < 0:
+            return "IDENTITY_UNAVAILABLE"
+        try:
+            (Path("/proc") / str(pid)).stat()
+        except FileNotFoundError:
+            return "ORIGINAL_PROCESS_EXITED"
+        except OSError:
+            return "IDENTITY_UNAVAILABLE"
+        current = _read_proc(pid)
+        if current is None:
+            return "IDENTITY_UNAVAILABLE"
+        if current[4] != start_ticks:
+            return "ORIGINAL_PROCESS_EXITED_PID_REUSED"
+        return "ORIGINAL_PROCESS_ACTIVE"
+
+    def _verify_quiesced_gateway(self, state: dict, quiesce: dict) -> dict:
+        ownership_status = self._manager_ownership_status()
+        if ownership_status != "HELD_BY_THIS_MANAGER":
+            return {
+                "success": False,
+                "status": "NOT_MANAGER_OWNED",
+                "managerOwnershipStatus": ownership_status,
+                "detail": "This manager must hold the verified manager lease for gateway recovery.",
+            }
+        if (
+            quiesce.get("status") != "QUIESCED"
+            or "gateway" in state.get("services", {})
+            or "gateway" in self._processes
+        ):
+            return {
+                "success": False,
+                "status": "REFUSED_STATE",
+                "detail": "Gateway quiescence or managed-process state is inconsistent.",
+            }
+        gateway = next(
+            (service for service in self.services if service.name == "gateway"),
+            None,
+        )
+        if gateway is None:
+            return {
+                "success": False,
+                "status": "REFUSED_CONFIGURATION",
+                "detail": "No gateway service is configured.",
+            }
+        process_status = self._quiesce_process_status(quiesce)
+        if process_status == "ORIGINAL_PROCESS_ACTIVE":
+            return {
+                "success": False,
+                "status": "GATEWAY_PROCESS_ACTIVE",
+                "detail": "The original gateway process identity is still active.",
+            }
+        if process_status not in {
+            "ORIGINAL_PROCESS_EXITED",
+            "ORIGINAL_PROCESS_EXITED_PID_REUSED",
+        }:
+            return {
+                "success": False,
+                "status": "GATEWAY_IDENTITY_UNVERIFIED",
+                "detail": "The original gateway process identity cannot be verified as exited.",
+            }
+        try:
+            listeners = self._listener_details(gateway.port)
+        except (StartupFailure, OSError, ValueError):
+            listeners = None
+        if listeners is None:
+            return {
+                "success": False,
+                "status": "LISTENER_UNVERIFIED",
+                "detail": "The gateway listener state cannot be safely inspected.",
+            }
+        if listeners:
+            return {
+                "success": False,
+                "status": "LISTENER_CONFLICT",
+                "detail": "A process is listening on the gateway port; recovery is refused.",
+            }
+        return {
+            "success": True,
+            "status": "VERIFIED",
+            "managerOwnershipStatus": ownership_status,
+            "gatewayProcessStatus": process_status,
+            "listenerStatus": "NOT_LISTENING",
+            "verifiedAt": time.time(),
+        }
+
     def start_control_channel(self) -> None:
         if self._manager_lease_descriptor is None:
             raise StartupFailure(
@@ -624,6 +819,7 @@ class ServiceManager:
                         not isinstance(request, dict)
                         or set(request) != expected_fields
                         or operation not in {
+                            "stop-stack",
                             "restart-auth",
                             "restart-gateway",
                             "quiesce-gateway",
@@ -847,6 +1043,86 @@ class ServiceManager:
                 os.unlink(temporary_name)
             except FileNotFoundError:
                 pass
+
+    @staticmethod
+    def _inferred_gateway_lifecycle_state(state: dict) -> str:
+        lifecycle = state.get("gatewayLifecycle")
+        if isinstance(lifecycle, dict):
+            current = lifecycle.get("state")
+            return (
+                current
+                if isinstance(current, str)
+                and current in GATEWAY_LIFECYCLE_STATES
+                else "UNKNOWN"
+            )
+        quiesce = state.get("gatewayQuiesce")
+        if isinstance(quiesce, dict):
+            return {
+                "QUIESCED": "QUIESCED",
+                "QUIESCE_REQUESTED": "QUIESCING",
+                "RESUME_REQUESTED": "RECOVERING",
+                "NEEDS_OPERATOR": "FAILED",
+            }.get(quiesce.get("status"), "FAILED")
+        if "gateway" in state.get("services", {}):
+            return "RUNNING"
+        return "STOPPED"
+
+    def _transition_gateway_lifecycle(
+        self,
+        state: dict,
+        target: str,
+        reason: str,
+        *,
+        operation_id: str | None = None,
+    ) -> None:
+        if target not in GATEWAY_LIFECYCLE_STATES:
+            raise ValueError(f"Unknown gateway lifecycle state: {target}")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("Gateway lifecycle transitions require a reason.")
+        lifecycle = state.get("gatewayLifecycle")
+        if lifecycle is None:
+            current = self._inferred_gateway_lifecycle_state(state)
+            lifecycle = {
+                "state": current,
+                "updatedAt": time.time(),
+                "reason": "Lifecycle state inferred from persisted gateway state.",
+                "operationId": None,
+                "history": [],
+            }
+            state["gatewayLifecycle"] = lifecycle
+        elif (
+            not isinstance(lifecycle, dict)
+            or lifecycle.get("state") not in GATEWAY_LIFECYCLE_STATES
+            or not isinstance(lifecycle.get("history", []), list)
+        ):
+            raise StartupFailure(
+                "gateway",
+                "Persisted gateway lifecycle state is malformed; refusing transition.",
+                self.statuses,
+            )
+
+        current = lifecycle["state"]
+        if current == target:
+            return
+        if target not in GATEWAY_LIFECYCLE_TRANSITIONS[current]:
+            raise StartupFailure(
+                "gateway",
+                f"Illegal gateway lifecycle transition: {current} -> {target}.",
+                self.statuses,
+            )
+        changed_at = time.time()
+        lifecycle["state"] = target
+        lifecycle["updatedAt"] = changed_at
+        lifecycle["reason"] = reason.strip()
+        lifecycle["operationId"] = operation_id
+        history = lifecycle.setdefault("history", [])
+        history.append({
+            "state": target,
+            "at": changed_at,
+            "operationId": operation_id,
+            "reason": reason.strip(),
+        })
+        del history[:-GATEWAY_LIFECYCLE_HISTORY_LIMIT]
 
     def _process_matches(self, service: Service, pid: int, start_ticks: int | None = None, *, managed: bool = False) -> bool:
         proc = _read_proc(pid)
@@ -1194,6 +1470,7 @@ class ServiceManager:
                 if not self._process_matches(
                     service, process.pid, record["start_ticks"], managed=True
                 ):
+                    time.sleep(self.poll_interval)
                     if process.poll() is not None:
                         state["services"].pop(service.name, None)
                         self._processes.pop(service.name, None)
@@ -1410,6 +1687,12 @@ class ServiceManager:
             if self._process_matches(gateway, pid, start_ticks, managed=True):
                 if isinstance(quiesce, dict):
                     quiesce["status"] = "NEEDS_OPERATOR"
+                self._transition_gateway_lifecycle(
+                    state,
+                    "FAILED",
+                    "Interrupted quiesce left the original gateway process running; operator review is required.",
+                    operation_id=active_id,
+                )
                 self._control_transition(
                     state,
                     active_id,
@@ -1424,6 +1707,12 @@ class ServiceManager:
             if (Path("/proc") / str(pid)).exists():
                 if isinstance(quiesce, dict):
                     quiesce["status"] = "NEEDS_OPERATOR"
+                self._transition_gateway_lifecycle(
+                    state,
+                    "FAILED",
+                    "Interrupted quiesce found an ambiguous process using the recorded gateway PID.",
+                    operation_id=active_id,
+                )
                 self._control_transition(
                     state,
                     active_id,
@@ -1440,6 +1729,12 @@ class ServiceManager:
                 if isinstance(quiesce, dict):
                     quiesce["status"] = "NEEDS_OPERATOR"
                     quiesce["gatewayStatus"] = "STOPPED_LISTENER_AMBIGUOUS"
+                self._transition_gateway_lifecycle(
+                    state,
+                    "FAILED",
+                    "Interrupted quiesce could not verify the gateway listener is absent.",
+                    operation_id=active_id,
+                )
                 self._control_transition(
                     state,
                     active_id,
@@ -1458,6 +1753,12 @@ class ServiceManager:
             quiesce["writersStatus"] = "NOT_VERIFIED"
             state["services"].pop("gateway", None)
             self._processes.pop("gateway", None)
+            self._transition_gateway_lifecycle(
+                state,
+                "QUIESCED",
+                "Interrupted quiesce verified the original process and listener are absent; external writers remain unverified.",
+                operation_id=active_id,
+            )
             self._control_transition(
                 state,
                 active_id,
@@ -1511,6 +1812,19 @@ class ServiceManager:
                 if isinstance(quiesce, dict):
                     quiesce["status"] = "QUIESCED"
                     quiesce["gatewayStatus"] = "STOPPED"
+                    self._transition_gateway_lifecycle(
+                        state,
+                        "QUIESCED",
+                        "Interrupted gateway recovery candidate was stopped after identity verification.",
+                        operation_id=active_id,
+                    )
+            elif operation == "restart-gateway":
+                self._transition_gateway_lifecycle(
+                    state,
+                    "FAILED",
+                    "Interrupted gateway restart candidate was safely stopped; operator recovery is required.",
+                    operation_id=active_id,
+                )
             self._control_transition(
                 state,
                 active_id,
@@ -1541,6 +1855,13 @@ class ServiceManager:
                     and listeners[0][1] == [pid]
                     and self._probe(target)
                 ):
+                    if operation == "restart-gateway":
+                        self._transition_gateway_lifecycle(
+                            state,
+                            "RUNNING",
+                            "Interrupted restart left the original gateway identity and readiness verified.",
+                            operation_id=active_id,
+                        )
                     self._control_transition(
                         state,
                         active_id,
@@ -1548,6 +1869,13 @@ class ServiceManager:
                         f"Interrupted restart left the original {service_name} verified and healthy; it was not signalled again.",
                     )
                     return
+                if operation == "restart-gateway":
+                    self._transition_gateway_lifecycle(
+                        state,
+                        "FAILED",
+                        "Interrupted gateway restart left readiness ambiguous; no process was signalled.",
+                        operation_id=active_id,
+                    )
                 raise StartupFailure(
                     service_name,
                     f"Original {service_name} identity remains but readiness is ambiguous; no process was signalled.",
@@ -1560,11 +1888,24 @@ class ServiceManager:
                     self.statuses,
                 )
             state["services"].pop(service_name, None)
+        if operation == "restart-gateway":
+            self._transition_gateway_lifecycle(
+                state,
+                "FAILED",
+                "Interrupted gateway restart has no verified live gateway process.",
+                operation_id=active_id,
+            )
         if operation == "resume-gateway":
             quiesce = state.get("gatewayQuiesce")
             if isinstance(quiesce, dict) and "gateway" not in state["services"]:
                 quiesce["status"] = "QUIESCED"
                 quiesce["gatewayStatus"] = "STOPPED"
+                self._transition_gateway_lifecycle(
+                    state,
+                    "QUIESCED",
+                    "Interrupted gateway recovery has no verified candidate; quiescence is preserved.",
+                    operation_id=active_id,
+                )
         self._control_transition(
             state,
             active_id,
@@ -2069,6 +2410,40 @@ class ServiceManager:
                         "Gateway is recorded as both quiesced and managed; refusing startup.",
                         self.statuses,
                     )
+            lifecycle_state = self._inferred_gateway_lifecycle_state(state)
+            if lifecycle_state == "UNKNOWN":
+                raise StartupFailure(
+                    "gateway",
+                    "Persisted gateway lifecycle state is ambiguous; explicit operator review is required.",
+                    self.statuses,
+                )
+            if lifecycle_state == "FAILED" and quiesce is None:
+                raise StartupFailure(
+                    "gateway",
+                    "Gateway lifecycle is FAILED; a manager-controlled recovery transition is required.",
+                    self.statuses,
+                )
+            if (
+                lifecycle_state == "RUNNING"
+                and quiesce is None
+                and "gateway" not in state["services"]
+            ):
+                raise StartupFailure(
+                    "gateway",
+                    "Gateway lifecycle says RUNNING but its process record is missing.",
+                    self.statuses,
+                )
+            if (
+                isinstance(quiesce, dict)
+                and quiesce.get("status") == "QUIESCED"
+                and "gatewayLifecycle" not in state
+            ):
+                self._transition_gateway_lifecycle(
+                    state,
+                    "QUIESCED",
+                    str(quiesce.get("reason") or "Legacy persisted gateway quiesce state."),
+                    operation_id=quiesce.get("operationId"),
+                )
             by_name = {service.name: service for service in self.services}
             for name in list(state["services"]):
                 record = state["services"][name]
@@ -2078,6 +2453,12 @@ class ServiceManager:
                     int(record.get("start_ticks", -1)), managed=True,
                 ):
                     state["services"].pop(name, None)
+                    if name == "gateway":
+                        self._transition_gateway_lifecycle(
+                            state,
+                            "FAILED",
+                            "Recorded gateway process identity was stale or could not be verified.",
+                        )
                     continue
                 owned_process = self._processes.get(name)
                 if owned_process is None or owned_process.pid != int(record["pid"]):
@@ -2091,14 +2472,27 @@ class ServiceManager:
 
             for service in self.services:
                 if service.name == "gateway" and state.get("gatewayQuiesce") is not None:
+                    quiesce = state["gatewayQuiesce"]
+                    operation_id = quiesce.get("operationId", "UNKNOWN")
+                    writers_status = quiesce.get("writersStatus", "NOT_VERIFIED")
+                    gateway_status = quiesce.get("gatewayStatus", "STOPPED")
                     self.statuses["gateway"] = (
-                        "quiesced; writers not verified stopped"
+                        "quiesced (QUIESCED); gateway="
+                        f"{gateway_status}; writers={writers_status}; "
+                        f"operationId={operation_id}; gateway startup refused"
                     )
                     continue
                 record = state["services"].get(service.name)
                 if record:
                     health = self._probe(service)
                     if health:
+                        if service.name == "gateway":
+                            self._transition_gateway_lifecycle(
+                                state,
+                                "RUNNING",
+                                "Manager verified the recorded gateway process and readiness probe.",
+                            )
+                            self._write_state(state)
                         self.statuses[service.name] = f"managed and healthy ({health})"
                         continue
                     raise StartupFailure(
@@ -2118,6 +2512,13 @@ class ServiceManager:
                     if len(listener_pids) == 1 and self._process_matches(service, listener_pids[0]):
                         health = self._probe(service)
                         if health:
+                            if service.name == "gateway":
+                                self._transition_gateway_lifecycle(
+                                    state,
+                                    "RUNNING",
+                                    "A healthy loopback gateway listener passed identity and readiness checks.",
+                                )
+                                self._write_state(state)
                             self.statuses[service.name] = f"reused healthy pre-existing service ({health})"
                             continue
                     raise StartupFailure(
@@ -2127,10 +2528,30 @@ class ServiceManager:
                     )
 
                 try:
+                    if service.name == "gateway":
+                        self._transition_gateway_lifecycle(
+                            state,
+                            "STARTING",
+                            "Manager began gateway startup after port and lifecycle checks.",
+                        )
+                        self._write_state(state)
                     health = self._start_service(service, state)
-                except StartupFailure:
+                except (StartupFailure, OSError):
+                    if service.name == "gateway":
+                        self._transition_gateway_lifecycle(
+                            state,
+                            "FAILED",
+                            "Gateway startup failed before readiness was verified.",
+                        )
+                        self._write_state(state)
                     raise
                 newly_started.append(service.name)
+                if service.name == "gateway":
+                    self._transition_gateway_lifecycle(
+                        state,
+                        "RUNNING",
+                        "Gateway process identity, loopback listener, and readiness probe verified.",
+                    )
                 self._write_state(state)
 
             return dict(self.statuses)
@@ -2187,14 +2608,40 @@ class ServiceManager:
                 ):
                     result[name] = "stale record removed; process left untouched"
                     state["services"].pop(name, None)
+                    if name == "gateway":
+                        self._transition_gateway_lifecycle(
+                            state,
+                            "FAILED",
+                            "Gateway stop found a stale or ambiguous process identity; no signal was sent.",
+                        )
                     self._write_state(state)
                     continue
+                if name == "gateway":
+                    self._transition_gateway_lifecycle(
+                        state,
+                        "QUIESCING",
+                        "Manager is stopping the gateway as part of the explicit stack stop.",
+                    )
+                    self._write_state(state)
                 if self._stop_record(service, record):
                     result[name] = "stopped launcher-managed process"
                     state["services"].pop(name, None)
+                    if name == "gateway":
+                        self._transition_gateway_lifecycle(
+                            state,
+                            "STOPPED",
+                            "Gateway process stopped through the manager's explicit stack-stop action.",
+                        )
                     self._write_state(state)
                 else:
                     result[name] = "not stopped: process identity changed or graceful shutdown failed"
+                    if name == "gateway":
+                        self._transition_gateway_lifecycle(
+                            state,
+                            "FAILED",
+                            "Gateway could not be safely stopped by the manager.",
+                        )
+                        self._write_state(state)
             return result
         finally:
             fcntl.flock(descriptor, fcntl.LOCK_UN)
@@ -2243,6 +2690,7 @@ class ServiceManager:
             }
 
         records = state["services"]
+        manager_ownership_status = self._manager_ownership_status()
         service_statuses: dict[str, dict[str, str]] = {}
         service_by_name = {service.name: service for service in self.services}
         for service in self.services:
@@ -2338,6 +2786,30 @@ class ServiceManager:
                 elif gateway_status.get("listenerStatus") != "NOT_LISTENING":
                     quiesce_status = "AMBIGUOUS"
 
+        gateway_recovery_evidence = None
+        if isinstance(quiesce, dict) and quiesce.get("status") == "QUIESCED":
+            gateway = service_by_name.get("gateway")
+            try:
+                listeners = (
+                    self._listener_details(gateway.port)
+                    if gateway is not None
+                    else None
+                )
+            except (StartupFailure, OSError, ValueError):
+                listeners = None
+            listener_status = (
+                "UNVERIFIED"
+                if listeners is None
+                else "NOT_LISTENING"
+                if not listeners
+                else "CONFLICT"
+            )
+            gateway_recovery_evidence = {
+                "managerOwnershipStatus": manager_ownership_status,
+                "gatewayProcessStatus": self._quiesce_process_status(quiesce),
+                "listenerStatus": listener_status,
+            }
+
         writers_status = "NOT_VERIFIED"
         attestation_source = None
         if isinstance(quiesce, dict) and quiesce.get("status") == "QUIESCED":
@@ -2355,14 +2827,31 @@ class ServiceManager:
             "stateStatus": (
                 "AMBIGUOUS" if unknown_record_count else state_status
             ),
-            "managerOwnershipStatus": "NOT_VERIFIED",
+            "managerOwnershipStatus": manager_ownership_status,
             "services": service_statuses,
             "gatewayQuiesce": {
                 "status": quiesce_status,
                 "writersStatus": writers_status,
             },
+            "gatewayLifecycle": {
+                "state": self._inferred_gateway_lifecycle_state(state),
+                "updatedAt": (
+                    state.get("gatewayLifecycle", {}).get("updatedAt")
+                    if isinstance(state.get("gatewayLifecycle"), dict)
+                    else None
+                ),
+                "reason": (
+                    state.get("gatewayLifecycle", {}).get("reason")
+                    if isinstance(state.get("gatewayLifecycle"), dict)
+                    else None
+                ),
+            },
             "writersStatus": writers_status,
         }
+        if isinstance(quiesce, dict) and isinstance(quiesce.get("reason"), str):
+            result["gatewayQuiesce"]["reason"] = quiesce["reason"]
+        if gateway_recovery_evidence is not None:
+            result["gatewayQuiesce"].update(gateway_recovery_evidence)
         if attestation_source is not None:
             result["writerAttestationSource"] = attestation_source
         if unknown_record_count:
@@ -2485,11 +2974,18 @@ class ServiceManager:
                 "oldProcess": {"pid": pid, "start_ticks": start_ticks},
                 "events": [],
             }
+            self._transition_gateway_lifecycle(
+                state,
+                "QUIESCING",
+                "Operator requested gateway-only quiescence; stopping new protocol work.",
+                operation_id=operation_id,
+            )
             state["gatewayQuiesce"] = {
                 "status": "QUIESCE_REQUESTED",
                 "operationId": operation_id,
                 "process": {"pid": pid, "start_ticks": start_ticks},
                 "requestedAt": time.time(),
+                "reason": "Operator requested an explicit gateway-only quiesce.",
                 "writersStatus": "NOT_VERIFIED",
             }
             self._control_transition(
@@ -2543,6 +3039,12 @@ class ServiceManager:
                 quiesce["gatewayStatus"] = (
                     "STOPPED_IDENTITY_EXITED" if exited else "RUNNING_IDENTITY_VERIFIED"
                 )
+                self._transition_gateway_lifecycle(
+                    state,
+                    "FAILED",
+                    "Gateway shutdown did not complete within the bounded graceful-stop policy.",
+                    operation_id=operation_id,
+                )
                 self._control_transition(
                     state,
                     operation_id,
@@ -2568,6 +3070,12 @@ class ServiceManager:
             if listeners is None or listeners:
                 state["gatewayQuiesce"]["status"] = "NEEDS_OPERATOR"
                 state["gatewayQuiesce"]["gatewayStatus"] = "STOPPED_LISTENER_AMBIGUOUS"
+                self._transition_gateway_lifecycle(
+                    state,
+                    "FAILED",
+                    "Gateway exited, but its listener could not be verified absent.",
+                    operation_id=operation_id,
+                )
                 self._control_transition(
                     state,
                     operation_id,
@@ -2586,6 +3094,12 @@ class ServiceManager:
             state["gatewayQuiesce"]["status"] = "QUIESCED"
             state["gatewayQuiesce"]["gatewayStatus"] = "STOPPED"
             state["gatewayQuiesce"]["stoppedAt"] = time.time()
+            self._transition_gateway_lifecycle(
+                state,
+                "QUIESCED",
+                "Gateway process stopped and its expected listener is absent; external writers remain unverified.",
+                operation_id=operation_id,
+            )
             self._control_transition(
                 state,
                 operation_id,
@@ -2631,7 +3145,23 @@ class ServiceManager:
                     and isinstance(persisted_attestation, dict)
                     and persisted_attestation.get("quiesceOperationId") == quiesce.get("operationId")
                     and _validate_operator_attestation(persisted_attestation) is None
+                    and previous.get("writerAttestationFingerprint")
+                    == hashlib.sha256(
+                        json.dumps(
+                            persisted_attestation,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        ).encode("utf-8")
+                    ).hexdigest()
+                    and isinstance(quiesce.get("gatewayRecoveryEvidence"), dict)
+                    and quiesce["gatewayRecoveryEvidence"].get("quiesceOperationId")
+                    == quiesce.get("operationId")
+                    and quiesce["gatewayRecoveryEvidence"].get("attestationOperationId")
+                    == operation_id
                 )
+                if replay_valid:
+                    recovery_check = self._verify_quiesced_gateway(state, quiesce)
+                    replay_valid = recovery_check["success"]
                 return {
                     "success": replay_valid,
                     "operationId": operation_id,
@@ -2662,24 +3192,49 @@ class ServiceManager:
                     "writersStatus": "NOT_VERIFIED",
                     "detail": "Attestation is not bound to the active gateway quiesce operation.",
                 }
+            recovery_evidence = self._verify_quiesced_gateway(state, quiesce)
+            if not recovery_evidence["success"]:
+                return {
+                    "success": False,
+                    "operationId": operation_id,
+                    "status": recovery_evidence["status"],
+                    "writersStatus": "NOT_VERIFIED",
+                    "managerOwnershipStatus": recovery_evidence.get(
+                        "managerOwnershipStatus", self._manager_ownership_status()
+                    ),
+                    "detail": recovery_evidence["detail"],
+                }
             transactions[operation_id] = {
                 "operation": "attest-gateway-writers",
                 "service": "gateway",
                 "status": "REQUESTED",
                 "createdAt": time.time(),
                 "updatedAt": time.time(),
+                "writerAttestationFingerprint": hashlib.sha256(
+                    json.dumps(
+                        attestation,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ).encode("utf-8")
+                ).hexdigest(),
                 "events": [],
             }
             quiesce["writersStatus"] = "OPERATOR_ATTESTED"
             quiesce["writerAttestation"] = dict(attestation)
             quiesce["writerAttestationSource"] = "OPERATOR"
+            quiesce["gatewayRecoveryEvidence"] = {
+                "quiesceOperationId": quiesce.get("operationId"),
+                "attestationOperationId": operation_id,
+                **recovery_evidence,
+            }
             self._control_transition(
                 state,
                 operation_id,
                 "OPERATOR_ATTESTED",
-                "Operator-attested writer inventory and restart holds recorded; software did not independently verify external writer absence.",
+                "Operator-attested writer inventory and restart holds recorded; "
+                "the manager verified only its lease, the old gateway process identity, "
+                "and the expected listener. External writer absence was not independently verified.",
             )
-            self._write_state(state)
             return {
                 "success": True,
                 "operationId": operation_id,
@@ -2708,14 +3263,56 @@ class ServiceManager:
                         "writersStatus": "NOT_VERIFIED",
                         "detail": "Operation ID is already assigned to another control operation.",
                     }
+                succeeded = previous.get("status") == "SUCCEEDED"
+                attested = previous.get("writersStatus") == "OPERATOR_ATTESTED" and (
+                    previous.get("writerAttestationSource") == "OPERATOR"
+                )
+                current_quiesce = state.get("gatewayQuiesce")
+                replay_quiesce_id = previous.get("quiesceOperationId")
+                replay_fingerprint = previous.get("writerAttestationFingerprint")
+                if succeeded and (
+                    not attested
+                    or not isinstance(replay_quiesce_id, str)
+                    or not replay_quiesce_id
+                    or not isinstance(replay_fingerprint, str)
+                    or len(replay_fingerprint) != 64
+                ):
+                    return {
+                        "success": False,
+                        "operationId": operation_id,
+                        "status": "STALE_CONTROL_PROVENANCE",
+                        "gatewayStatus": "NOT_CHANGED",
+                        "writersStatus": "NOT_VERIFIED",
+                        "detail": "Recorded resume success lacks matching attested-quiesce provenance.",
+                    }
+                if isinstance(current_quiesce, dict):
+                    current_attestation = current_quiesce.get("writerAttestation")
+                    current_fingerprint = hashlib.sha256(
+                        json.dumps(current_attestation, sort_keys=True, separators=(",", ":")).encode("utf-8")
+                    ).hexdigest() if isinstance(current_attestation, dict) else None
+                    if (
+                        current_quiesce.get("operationId") != replay_quiesce_id
+                        or current_quiesce.get("resumeOperationId") != operation_id
+                        or current_fingerprint != replay_fingerprint
+                    ):
+                        return {
+                            "success": False,
+                            "operationId": operation_id,
+                            "status": "STALE_CONTROL_PROVENANCE",
+                            "gatewayStatus": "NOT_CHANGED",
+                            "writersStatus": "OPERATOR_ATTESTED",
+                            "writerAttestationSource": "OPERATOR",
+                            "detail": "Active quiesce or writer attestation changed after the recorded resume.",
+                        }
                 return {
-                    "success": previous.get("status") == "SUCCEEDED",
+                    "success": succeeded,
                     "operationId": operation_id,
                     "status": previous.get("status", "UNKNOWN"),
                     "gatewayStatus": (
-                        "READY" if previous.get("status") == "SUCCEEDED" else "NOT_VERIFIED"
+                        "READY" if succeeded else "NOT_VERIFIED"
                     ),
-                    "writersStatus": "NOT_VERIFIED",
+                    "writersStatus": "OPERATOR_ATTESTED" if attested else "NOT_VERIFIED",
+                    "writerAttestationSource": "OPERATOR" if attested else "NONE",
                     "detail": previous.get("events", [{}])[-1].get("detail", ""),
                 }
             if state.get("activeControlOperation") is not None:
@@ -2758,6 +3355,68 @@ class ServiceManager:
                     "gatewayStatus": "NOT_CHANGED",
                     "writersStatus": quiesce.get("writersStatus", "NOT_VERIFIED"),
                     "detail": "A matching, current operator writer attestation is required; gateway resume refused.",
+                }
+            recovery_evidence = quiesce.get("gatewayRecoveryEvidence")
+            if (
+                not isinstance(recovery_evidence, dict)
+                or recovery_evidence.get("quiesceOperationId") != quiesce.get("operationId")
+                or recovery_evidence.get("status") != "VERIFIED"
+                or recovery_evidence.get("managerOwnershipStatus") != "HELD_BY_THIS_MANAGER"
+                or recovery_evidence.get("gatewayProcessStatus") not in {
+                    "ORIGINAL_PROCESS_EXITED",
+                    "ORIGINAL_PROCESS_EXITED_PID_REUSED",
+                }
+                or recovery_evidence.get("listenerStatus") != "NOT_LISTENING"
+            ):
+                return {
+                    "success": False,
+                    "operationId": operation_id,
+                    "status": "REFUSED_RECOVERY_EVIDENCE",
+                    "gatewayStatus": "NOT_CHANGED",
+                    "writersStatus": "OPERATOR_ATTESTED",
+                    "writerAttestationSource": "OPERATOR",
+                    "detail": "Matching manager-verified process and listener evidence is required.",
+                }
+            attestation_operation_id = recovery_evidence.get(
+                "attestationOperationId"
+            )
+            attestation_operation = (
+                transactions.get(attestation_operation_id)
+                if isinstance(attestation_operation_id, str)
+                else None
+            )
+            expected_attestation_fingerprint = hashlib.sha256(
+                json.dumps(
+                    attestation,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            ).hexdigest()
+            if (
+                not isinstance(attestation_operation, dict)
+                or attestation_operation.get("operation") != "attest-gateway-writers"
+                or attestation_operation.get("status") != "OPERATOR_ATTESTED"
+                or attestation_operation.get("writerAttestationFingerprint")
+                != expected_attestation_fingerprint
+            ):
+                return {
+                    "success": False,
+                    "operationId": operation_id,
+                    "status": "REFUSED_WRITER_SAFETY",
+                    "gatewayStatus": "NOT_CHANGED",
+                    "writersStatus": "NOT_VERIFIED",
+                    "detail": "A matching manager-recorded attestation audit event is required.",
+                }
+            recovery_check = self._verify_quiesced_gateway(state, quiesce)
+            if not recovery_check["success"]:
+                return {
+                    "success": False,
+                    "operationId": operation_id,
+                    "status": recovery_check["status"],
+                    "gatewayStatus": "NOT_CHANGED",
+                    "writersStatus": "OPERATOR_ATTESTED",
+                    "writerAttestationSource": "OPERATOR",
+                    "detail": recovery_check["detail"],
                 }
 
             gateway = next(
@@ -2813,6 +3472,9 @@ class ServiceManager:
                         "detail": f"Unrelated service identity for {other.name} is stale or unhealthy.",
                     }
 
+            attestation_fingerprint = hashlib.sha256(
+                json.dumps(attestation, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest()
             transactions[operation_id] = {
                 "operation": "resume-gateway",
                 "service": "gateway",
@@ -2820,7 +3482,24 @@ class ServiceManager:
                 "createdAt": time.time(),
                 "updatedAt": time.time(),
                 "events": [],
+                "quiesceOperationId": quiesce.get("operationId"),
+                "writerAttestationFingerprint": attestation_fingerprint,
+                "writersStatus": "OPERATOR_ATTESTED",
+                "writerAttestationSource": "OPERATOR",
+                "gatewayRecoveryEvidence": {
+                    "quiesceOperationId": quiesce.get("operationId"),
+                    "attestationOperationId": recovery_evidence.get(
+                        "attestationOperationId"
+                    ),
+                    **recovery_check,
+                },
             }
+            self._transition_gateway_lifecycle(
+                state,
+                "RECOVERING",
+                "Live gateway recovery passed operator-attestation and manager process/listener gates.",
+                operation_id=operation_id,
+            )
             quiesce["status"] = "RESUME_REQUESTED"
             quiesce["resumeOperationId"] = operation_id
             self._control_transition(
@@ -2872,10 +3551,20 @@ class ServiceManager:
                     self._processes.pop("gateway", None)
                     quiesce["status"] = "QUIESCED"
                     gateway_status = "STOPPED"
+                    lifecycle_target = "QUIESCED"
+                    lifecycle_reason = "Recovery candidate was stopped; gateway remains quiesced."
                 else:
                     quiesce["status"] = "NEEDS_OPERATOR"
                     gateway_status = "CANDIDATE_REMAINS_MANAGED"
+                    lifecycle_target = "FAILED"
+                    lifecycle_reason = "Recovery candidate could not be safely stopped."
                 quiesce["gatewayStatus"] = gateway_status
+                self._transition_gateway_lifecycle(
+                    state,
+                    lifecycle_target,
+                    lifecycle_reason,
+                    operation_id=operation_id,
+                )
                 self._control_transition(
                     state,
                     operation_id,
@@ -2887,10 +3576,17 @@ class ServiceManager:
                     "operationId": operation_id,
                     "status": "FAILED",
                     "gatewayStatus": gateway_status,
-                    "writersStatus": "NOT_VERIFIED",
-                    "detail": "Gateway resume failed; quiesce state was preserved where safe.",
+                    "writersStatus": "OPERATOR_ATTESTED",
+                    "writerAttestationSource": "OPERATOR",
+                    "detail": "Gateway resume failed; operator attestation and quiesce state were preserved where safe.",
                 }
 
+            self._transition_gateway_lifecycle(
+                state,
+                "RUNNING",
+                "Recovered gateway identity, loopback listener, and readiness probe verified.",
+                operation_id=operation_id,
+            )
             state.pop("gatewayQuiesce", None)
             transactions[operation_id].pop("candidateProcess", None)
             self._control_transition(
@@ -3030,6 +3726,12 @@ class ServiceManager:
                 "Local manager request accepted for the gateway service.",
             )
             transactions[operation_id].pop("candidateProcess", None)
+            self._transition_gateway_lifecycle(
+                state,
+                "QUIESCING",
+                "Manager began a controlled gateway restart; external writers are not attested by this operation.",
+                operation_id=operation_id,
+            )
             self._control_transition(
                 state,
                 operation_id,
@@ -3083,6 +3785,13 @@ class ServiceManager:
                     "FAILED",
                     f"Gateway shutdown failed ({type(shutdown_failure).__name__}); {actual_state}.",
                 )
+                self._transition_gateway_lifecycle(
+                    state,
+                    "FAILED",
+                    f"Controlled gateway shutdown failed ({type(shutdown_failure).__name__}); {actual_state}.",
+                    operation_id=operation_id,
+                )
+                self._write_state(state)
                 return {
                     "success": False,
                     "operationId": operation_id,
@@ -3093,11 +3802,23 @@ class ServiceManager:
 
             self._processes.pop("gateway", None)
             state["services"].pop("gateway", None)
+            self._transition_gateway_lifecycle(
+                state,
+                "QUIESCED",
+                "Original gateway process exited for a controlled restart; this does not attest external writers.",
+                operation_id=operation_id,
+            )
             self._control_transition(
                 state,
                 operation_id,
                 "OLD_EXITED",
                 "Original gateway process exited and was reaped.",
+            )
+            self._transition_gateway_lifecycle(
+                state,
+                "RECOVERING",
+                "Manager is starting the verified replacement gateway process.",
+                operation_id=operation_id,
             )
             self._control_transition(
                 state,
@@ -3164,6 +3885,13 @@ class ServiceManager:
                     "FAILED",
                     f"Replacement readiness failed ({type(exc).__name__}); {actual_state}.",
                 )
+                self._transition_gateway_lifecycle(
+                    state,
+                    "FAILED",
+                    f"Controlled gateway replacement failed ({type(exc).__name__}); {actual_state}.",
+                    operation_id=operation_id,
+                )
+                self._write_state(state)
                 return {
                     "success": False,
                     "operationId": operation_id,
@@ -3172,6 +3900,12 @@ class ServiceManager:
                     "serviceStatus": self.statuses.get("gateway", "stopped"),
                 }
 
+            self._transition_gateway_lifecycle(
+                state,
+                "RUNNING",
+                "Replacement identity, loopback listener, and gateway readiness verified.",
+                operation_id=operation_id,
+            )
             self._control_transition(
                 state,
                 operation_id,
@@ -3213,6 +3947,25 @@ class ServiceManager:
                             result.update(self._resume_gateway(operation_id))
                         elif operation == "attest-gateway-writers":
                             result.update(self._attest_gateway_writers(operation_id, attestation))
+                        elif operation == "stop-stack":
+                            services = self.stop_managed()
+                            success = not any(
+                                value.startswith("not stopped")
+                                for value in services.values()
+                            )
+                            result.update({
+                                "success": success,
+                                "operationId": operation_id,
+                                "status": "STOPPED" if success else "STOP_INCOMPLETE",
+                                "services": services,
+                                "detail": (
+                                    "Manager-owned services stopped."
+                                    if success
+                                    else "One or more manager-owned services remain; supervision continues."
+                                ),
+                            })
+                            if success:
+                                self._shutdown_requested = True
                         else:
                             result.update({
                                 "success": False,
@@ -3258,6 +4011,8 @@ class ServiceManager:
                         print(f"ULTRON service exited unexpectedly: {name}.", file=sys.stderr)
                     self.stop_managed()
                     return 1
+                if self._shutdown_requested and not self._processes:
+                    return 0
                 time.sleep(0.5)
         except KeyboardInterrupt:
             print("\nStopping launcher-managed ULTRON services gracefully.")
@@ -3338,14 +4093,41 @@ def _main(argv: Sequence[str] | None = None) -> int:
             )
             return 0 if result["success"] else 1
         if arguments.action == "stop":
-            manager.acquire_manager_lease()
-            lease_acquired = True
-            statuses = manager.stop_managed()
+            if manager.control_socket_path.exists():
+                try:
+                    result = request_gateway_control_operation(
+                        manager.state_directory,
+                        "stop-stack",
+                        arguments.operation_id or f"stop-{secrets.token_hex(16)}",
+                    )
+                except (OSError, ValueError) as failure:
+                    try:
+                        manager.acquire_manager_lease()
+                    except StartupFailure:
+                        print(
+                            f"Could not request managed shutdown ({type(failure).__name__}); "
+                            "the active manager remains untouched.",
+                            file=sys.stderr,
+                        )
+                        return 1
+                    lease_acquired = True
+                    statuses = manager.stop_managed()
+                else:
+                    print(
+                        f"ULTRON manager stop {result.get('status', 'UNKNOWN')}: "
+                        f"{result.get('detail', '')}"
+                    )
+                    return 0 if result["success"] else 1
+            else:
+                manager.acquire_manager_lease()
+                lease_acquired = True
+                statuses = manager.stop_managed()
             if not statuses:
                 print("No launcher-managed ULTRON services are running; existing services were left untouched.")
                 return 0
             _print_statuses(statuses)
             return 1 if any("not stopped" in value for value in statuses.values()) else 0
+        _configure_manager_signal_policy()
         manager.acquire_manager_lease()
         lease_acquired = True
         statuses = manager.start_with_control_channel()

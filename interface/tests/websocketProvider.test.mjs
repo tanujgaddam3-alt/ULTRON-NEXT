@@ -845,6 +845,57 @@ test('provider preserves the helper distinction between wrong password and locko
   provider.disconnect();
 });
 
+test('provider reports gateway unavailability without authenticating or going LIVE', async () => {
+  const provenance = [];
+  class UnavailableSocket {
+    constructor() {
+      this.readyState = 0;
+      setTimeout(() => {
+        this.readyState = 1;
+        this.onopen();
+        this.onmessage({ data: JSON.stringify({
+          type: 'connected',
+          authenticationRequired: true,
+          authMethod: 'local-unlock'
+        }) });
+      }, 0);
+    }
+    send(raw) {
+      const request = JSON.parse(raw);
+      assert.equal(request.action, 'AUTHENTICATE');
+      this.onmessage({ data: JSON.stringify({
+        action: 'AUTHENTICATION_RESULT',
+        correlationId: request.correlationId,
+        success: false,
+        status: 'AUTHENTICATION_UNAVAILABLE',
+        error: 'The protected gateway is unavailable.'
+      }) });
+    }
+    close() {
+      this.readyState = 3;
+      if (this.onclose) this.onclose();
+    }
+  }
+
+  ctx.WebSocket = UnavailableSocket;
+  const provider = new WSProvider(
+    'ws://127.0.0.1:8081/ultron/stream',
+    async () => 'test-only-passphrase'
+  );
+  provider.connect({
+    setProvenance(value) { provenance.push(value); },
+    publish() {}
+  });
+  await delay(20);
+
+  assert.equal(provider.authenticationStatus, 'AUTHENTICATION_UNAVAILABLE');
+  assert.equal(provider.authenticationError, 'The protected gateway is unavailable.');
+  assert.equal(provider.authenticated, false);
+  assert.ok(provenance.includes('OFFLINE'));
+  assert.ok(!provenance.includes('LIVE'));
+  provider.disconnect();
+});
+
 test('cancelling operator authentication is not reported as a rejected passphrase', async () => {
   const sent = [];
   class CancelledSocket {

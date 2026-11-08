@@ -23,6 +23,7 @@ from tests.application.test_content_publishing import (
     _prepared,
     _reviewer_setup,
 )
+from tests.application.schema_test_utils import set_legacy_schema_version
 from ultron.application.content.rendering import ContentClipRenderingService
 from ultron.application.content.service import ContentRightsService
 from ultron.application.content.store import (
@@ -92,14 +93,14 @@ def _transition(
 def _migrate(store):
     assert store._connection.execute(
         "SELECT schema_version FROM content_schema_meta WHERE singleton = 1"
-    ).fetchone()[0] == ContentStore.SCHEMA_VERSION
+    ).fetchone()[0] == ContentStore.SCHEMA_VERSION == 10
     assert store._connection.execute(
         """
         SELECT COUNT(*) FROM sqlite_master
         WHERE type = 'table' AND name = 'content_publishing_attempts'
         """
-    ).fetchone()[0] == 0
-    assert store.migrate_publishing_attempt_schema() == 9
+    ).fetchone()[0] == 1
+    assert store.migrate_publishing_attempt_schema() == 10
 
 
 def _publishing_for_store(publishing, store):
@@ -147,7 +148,7 @@ def _create_attempt_in_process(database, job_id, barrier, results, command_id):
         store.close()
 
 
-def test_attempt_schema_v8_is_explicit_additive_and_idempotent(tmp_path, monkeypatch):
+def test_fresh_attempt_schema_is_complete_and_idempotent(tmp_path, monkeypatch):
     harness, job, _ = _approved_job(tmp_path, monkeypatch)
     store = harness.store
     before = {
@@ -162,7 +163,7 @@ def test_attempt_schema_v8_is_explicit_additive_and_idempotent(tmp_path, monkeyp
     }
 
     _migrate(store)
-    assert store.migrate_publishing_attempt_schema() == 9
+    assert store.migrate_publishing_attempt_schema() == 10
     assert store._connection.execute("PRAGMA foreign_key_check").fetchall() == []
     assert store._connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
     after = {
@@ -177,14 +178,14 @@ def test_attempt_schema_v8_is_explicit_additive_and_idempotent(tmp_path, monkeyp
     reopened = ContentStore(database)
     assert reopened._connection.execute(
         "SELECT schema_version FROM content_schema_meta WHERE singleton = 1"
-    ).fetchone()[0] == 9
+    ).fetchone()[0] == 10
     assert reopened.get_latest_publishing_attempt(job.job_id) is None
     reopened._connection.execute(
         "DROP TRIGGER content_publishing_attempt_state_transition"
     )
-    with pytest.raises(RuntimeError, match="schema is inconsistent"):
+    with pytest.raises(RuntimeError, match="inconsistent"):
         ContentStore(database)
-    with pytest.raises(RuntimeError, match="schema is inconsistent"):
+    with pytest.raises(RuntimeError, match="inconsistent"):
         reopened.migrate_publishing_attempt_schema()
     reopened.close()
 
@@ -193,6 +194,7 @@ def test_explicit_v7_to_v10_migration_command(tmp_path):
     database = tmp_path / "content.db"
     backup = tmp_path / "content.db.pre-v10"
     store = ContentStore(database)
+    set_legacy_schema_version(store, 7)
     store.close()
     shutil.copyfile(database, backup)
 
@@ -231,11 +233,7 @@ def test_explicit_schema_v8_to_v9_upgrade_tightens_retry_eligibility(
 ):
     harness, _, _ = _approved_job(tmp_path, monkeypatch)
     store = harness.store
-    with store._transaction() as connection:
-        ContentStore._create_publishing_attempt_tables(connection)
-        connection.execute(
-            "UPDATE content_schema_meta SET schema_version = 8 WHERE singleton = 1"
-        )
+    set_legacy_schema_version(store, 8)
     database = store.database_identity
     store.close()
 
@@ -1090,7 +1088,7 @@ def test_startup_rejects_schema_tampering_before_attempt_recovery(
     database = store.database_identity
     store.close()
 
-    with pytest.raises(RuntimeError, match="schema is inconsistent"):
+    with pytest.raises(RuntimeError, match="incomplete or inconsistent"):
         ContentStore(database)
 
 
@@ -1709,6 +1707,7 @@ def test_explicit_migration_rolls_back_on_interruption(
 ):
     harness, _, _ = _approved_job(tmp_path, monkeypatch)
     store = harness.store
+    set_legacy_schema_version(store, 7)
     original = ContentStore._create_publishing_attempt_tables
 
     def interrupted(connection):
@@ -1812,7 +1811,7 @@ def test_schema_verification_rejects_altered_same_named_objects(
     with store._transaction() as connection:
         connection.execute(f"DROP {object_type.upper()} {object_name}")
         connection.execute(replacement_sql)
-    with pytest.raises(RuntimeError, match="schema definitions are inconsistent"):
+    with pytest.raises(RuntimeError, match="incomplete or inconsistent"):
         ContentStore(store.database_identity)
     with pytest.raises(RuntimeError, match="schema definitions are inconsistent"):
         store.migrate_publishing_attempt_schema()
@@ -1840,7 +1839,7 @@ def test_startup_rejects_missing_publishing_attempt_schema_objects(
         connection.execute(f"DROP {object_type.upper()} {object_name}")
     store.close()
 
-    with pytest.raises(RuntimeError, match="schema is inconsistent"):
+    with pytest.raises(RuntimeError, match="incomplete or inconsistent"):
         ContentStore(database)
 
 

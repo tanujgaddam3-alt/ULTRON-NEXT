@@ -1,6 +1,10 @@
 from datetime import UTC, datetime
+from hashlib import sha256
+from io import BytesIO
+import json
 from pathlib import Path
 import sqlite3
+from uuid import uuid4
 
 import pytest
 
@@ -14,6 +18,16 @@ from ultron.application.content.status import (
 )
 from ultron.application.content.store import ContentStore
 from ultron.application.content.store import ContentSchemaVersionMismatch
+from ultron.domain.content import (
+    AcquisitionMethod,
+    AssetCategory,
+    SourceAsset,
+    SourceProvenance,
+)
+from ultron.security.identity.authorization import (
+    AuthorizationContext,
+    resource_fingerprint,
+)
 from ultron.security.identity.authenticator import WebSocketAuthenticator
 
 
@@ -72,12 +86,72 @@ def test_empty_cre_status_is_truthful_and_read_only(tmp_path):
         assert status["jobs"] == []
         assert status["lifecycle"] == []
         assert status["events"] == []
+        assert status["services"]["sourceAssets"] == ()
         assert status["analytics"] == {
             "available": False,
             "reason": "NOT_INSTRUMENTED",
         }
         assert status["publishing"]["mode"] == "MOCK_ONLY"
         assert store._connection.total_changes == before
+    finally:
+        store.close()
+
+
+def test_source_asset_projection_is_owner_scoped_and_never_exposes_storage_key(tmp_path):
+    store = ContentStore(tmp_path / "content.db")
+    try:
+        provenance = json.dumps(
+            {
+                "acquisition_method": "owner_upload",
+                "acquired_at": datetime.now(UTC).isoformat(),
+                "source_reference": "https://example.org/source-video",
+                "provider": None,
+                "provider_record_id": None,
+                "notes": "",
+            }
+        )
+        for owner_id, asset_id in (
+            (OPERATOR_PRINCIPAL, "owned-source"),
+            ("another-owner", "private-source"),
+        ):
+            store._connection.execute(
+                """
+                INSERT INTO content_assets (
+                    asset_id, owner_id, category, content_sha256,
+                    provenance_json, storage_key, asset_state, created_at
+                ) VALUES (?, ?, 'footage', ?, ?, ?, 'active', ?)
+                """,
+                (
+                    asset_id,
+                    owner_id,
+                    "a" * 64,
+                    provenance,
+                    f"opaque-{asset_id}-storage-key",
+                    datetime.now(UTC).isoformat(),
+                ),
+            )
+        store._connection.execute(
+            """
+            INSERT INTO ownership_claims (
+                claim_id, asset_id, claimant_id, rights_holder,
+                authority_description, created_at
+            ) VALUES ('claim-1', 'owned-source', ?, 'Creator',
+                      'Operator-provided claim', ?)
+            """,
+            (OPERATOR_PRINCIPAL, datetime.now(UTC).isoformat()),
+        )
+        records = _status_service(store).for_principal(OPERATOR_PRINCIPAL)[
+            "services"
+        ]["sourceAssets"]
+        assert len(records) == 1
+        assert records[0]["assetId"] == "owned-source"
+        assert records[0]["rightsStatus"] == "REVIEW_REQUIRED"
+        assert records[0]["claims"][0]["reviewStatus"] == "REVIEW_REQUIRED"
+        assert "storageKey" not in records[0]
+        assert "opaque-owned-source-storage-key" not in repr(records)
+        assert records[0]["provenance"]["source_reference"] == (
+            "https://example.org/source-video"
+        )
     finally:
         store.close()
 
@@ -113,9 +187,24 @@ def test_status_queries_are_owner_scoped_bounded_and_minimal(tmp_path):
                 INSERT INTO content_assets (
                     asset_id, owner_id, category, content_sha256,
                     provenance_json, storage_key, asset_state, created_at
-                ) VALUES (?, ?, 'footage', ?, '{}', NULL, 'active', ?)
+                ) VALUES (?, ?, 'footage', ?, ?, NULL, 'active', ?)
                 """,
-                (asset_id, owner_id, "a" * 64, now),
+                (
+                    asset_id,
+                    owner_id,
+                    "a" * 64,
+                    json.dumps(
+                        {
+                            "acquisition_method": "owner_upload",
+                            "acquired_at": now,
+                            "source_reference": None,
+                            "provider": None,
+                            "provider_record_id": None,
+                            "notes": "",
+                        }
+                    ),
+                    now,
+                ),
             )
         for job_id, asset_id, owner_id in (
             ("owned-job-1", "owner-asset-1", OPERATOR_PRINCIPAL),
@@ -198,6 +287,7 @@ def test_runtime_allowlists_only_the_distinct_configured_gateway_principal(
         lambda: database_path,
     )
     monkeypatch.delenv("ULTRON_CRE_FASTER_WHISPER_MODEL", raising=False)
+    monkeypatch.delenv("ULTRON_CRE_EDITORIAL_OLLAMA_MODEL", raising=False)
     test_store = ContentStore(database_path)
     test_store.migrate_publishing_attempt_schema()
     test_store.migrate_private_render_operation_schema()
@@ -214,6 +304,64 @@ def test_runtime_allowlists_only_the_distinct_configured_gateway_principal(
         assert runtime.intelligence is None
     finally:
         runtime.close()
+
+
+def test_runtime_enables_only_configured_local_ollama_editorial_ranking(
+    tmp_path,
+    monkeypatch,
+):
+    database_path = tmp_path / "data" / "ultron_cre.db"
+
+    class FakeTranscriptionEngine:
+        engine_id = "test-local"
+        engine_version = "1"
+
+        def transcribe(self, samples, sample_rate_hz):
+            return ()
+
+    monkeypatch.setattr(
+        "ultron.application.content.status.FasterWhisperLocalEngine",
+        lambda model_directory: FakeTranscriptionEngine(),
+    )
+    monkeypatch.setenv("ULTRON_CRE_FASTER_WHISPER_MODEL", "/configured/local/model")
+    monkeypatch.setenv("ULTRON_CRE_EDITORIAL_OLLAMA_MODEL", "qwen2.5:7b")
+    test_store = ContentStore(database_path)
+    test_store.migrate_publishing_attempt_schema()
+    test_store.migrate_private_render_operation_schema()
+    test_store.close()
+
+    runtime = create_content_runtime(
+        WebSocketAuthenticator("S" * 43, OPERATOR_PRINCIPAL),
+        database_path=database_path,
+        content_storage_root=tmp_path / "content",
+    )
+    try:
+        intelligence = runtime.intelligence
+        assert intelligence is not None
+        provider = intelligence.local_editorial_provider
+        assert provider is not None
+        assert provider.model == "qwen2.5:7b"
+        assert provider.local_only is True
+        assert provider._session.trust_env is False
+        assert provider.url == "http://localhost:11434/api/generate"
+        assert provider.timeout == 20
+        assert provider.num_predict == 384
+        assert provider.json_mode is True
+    finally:
+        runtime.close()
+
+
+def test_runtime_rejects_editorial_model_without_local_transcription(tmp_path, monkeypatch):
+    monkeypatch.delenv("ULTRON_CRE_FASTER_WHISPER_MODEL", raising=False)
+    monkeypatch.setenv("ULTRON_CRE_EDITORIAL_OLLAMA_MODEL", "qwen2.5:7b")
+
+    with pytest.raises(RuntimeError, match="requires the configured local"):
+        create_content_runtime(
+            WebSocketAuthenticator("S" * 43, OPERATOR_PRINCIPAL),
+            database_path=tmp_path / "must-not-be-created.db",
+        )
+
+    assert not (tmp_path / "must-not-be-created.db").exists()
 
 
 def test_content_database_path_defaults_to_project_database_when_unset(
@@ -296,6 +444,87 @@ def test_content_runtime_accepts_v10_database_at_override_path(tmp_path, monkeyp
         runtime.close()
 
 
+def test_real_content_runtime_initializes_and_operates_on_fresh_v10_database(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("ULTRON_CRE_WORKER_ENABLED", "false")
+    monkeypatch.setenv("ULTRON_CRE_YOUTUBE_PUBLISHING_ENABLED", "false")
+    monkeypatch.setenv("ULTRON_CRE_PUBLISHING_DRY_RUN_ENABLED", "false")
+    database_path = tmp_path / "isolated" / "data" / "ultron_cre.db"
+    storage_root = tmp_path / "isolated" / "content"
+    token = "V" * 43
+    authenticator = WebSocketAuthenticator(token, "fixture-operator")
+    runtime = create_content_runtime(
+        authenticator,
+        database_path=database_path,
+        content_storage_root=storage_root,
+    )
+    try:
+        assert Path(runtime.store.database_identity) == database_path.resolve()
+        runtime_status = runtime.status.for_principal("fixture-operator")
+        assert runtime_status["status"] == "AVAILABLE"
+        assert runtime_status["publishing"]["mode"] == "MOCK_ONLY"
+        assert runtime.workflow_runtime is None
+        assert runtime.youtube_publishing is None
+        assert (database_path.parent / "ultron_cre_script_staging").is_dir()
+        assert storage_root.is_dir()
+        assert runtime.store._connection.execute(
+            "SELECT schema_version FROM content_schema_meta WHERE singleton = 1"
+        ).fetchone()[0] == 10
+
+        payload_bytes = b"isolated runtime write fixture"
+        digest = sha256(payload_bytes).hexdigest()
+        asset = SourceAsset(
+            asset_id="isolated-runtime-asset",
+            owner_id="fixture-operator",
+            category=AssetCategory.FOOTAGE,
+            content_sha256=digest,
+            provenance=SourceProvenance(
+                acquisition_method=AcquisitionMethod.OWNER_UPLOAD,
+                acquired_at=datetime.now(UTC),
+                source_reference="upload:isolated-runtime-test",
+            ),
+            storage_key="asset:isolated-runtime-test",
+        )
+        websocket = object()
+        assert authenticator.authenticate(websocket, token) is not None
+        operation_id = str(uuid4())
+        correlation_id = str(uuid4())
+        action = "content_register_asset"
+        asset_payload = asset.model_dump(mode="json")
+        grant = authenticator.authorize(
+            websocket=websocket,
+            operation={
+                "operationId": operation_id,
+                "correlationId": correlation_id,
+                "requestFingerprint": sha256(operation_id.encode()).hexdigest(),
+            },
+            purpose="content_lifecycle",
+            request_correlation_id=correlation_id,
+            action=action,
+            resource_fingerprint=resource_fingerprint(action, asset_payload),
+        )
+        assert grant is not None
+        registered = runtime.rights.register_asset(
+            asset,
+            source_stream=BytesIO(payload_bytes),
+            context=AuthorizationContext.from_grant(grant),
+            command_id=str(uuid4()),
+        )
+        assert registered == asset
+        assert runtime.store.get_asset(asset.asset_id) == asset
+    finally:
+        runtime.close()
+
+    reopened = ContentStore(database_path)
+    try:
+        assert reopened.get_asset("isolated-runtime-asset") == asset
+        ContentStore.verify_complete_runtime_schema(reopened._connection)
+    finally:
+        reopened.close()
+
+
 def test_v7_runtime_mismatch_is_classified_and_leaves_fixture_unchanged(
     tmp_path,
     monkeypatch,
@@ -328,7 +557,7 @@ def test_v7_runtime_mismatch_is_classified_and_leaves_fixture_unchanged(
 
     assert error.value.actual_version == 7
     assert error.value.expected_version == 10
-    assert ContentStore.SCHEMA_VERSION == 7
+    assert ContentStore.SCHEMA_VERSION == 10
     assert ContentStore.PUBLISHING_ATTEMPT_SCHEMA_VERSION == 9
     assert ContentStore.RUNTIME_SCHEMA_VERSION == 10
     assert database_path.read_bytes() == before_bytes
@@ -362,6 +591,9 @@ def test_read_only_runtime_preflight_accepts_disposable_v10_without_content_stor
 def test_read_only_runtime_preflight_rejects_v7_clearly(tmp_path):
     database_path = tmp_path / "cre-v7.db"
     store = ContentStore(database_path)
+    store._connection.execute(
+        "UPDATE content_schema_meta SET schema_version = 7 WHERE singleton = 1"
+    )
     store.close()
     before = database_path.read_bytes()
     from ultron.application.content.status import verify_cre_runtime_database_read_only

@@ -14,6 +14,7 @@ from pydantic import ValidationError
 
 from ultron.application.content.service import ContentRightsService
 from ultron.application.content.store import ContentStore
+from tests.application.schema_test_utils import set_legacy_schema_version
 from ultron.domain.content import (
     AcquisitionMethod,
     AgreementStatus,
@@ -839,6 +840,7 @@ def test_reopen_preserves_lifecycle_and_v1_schema_migrates_additively(tmp_path):
     reopened._connection.execute("DROP TABLE content_lifecycle_events")
     reopened._connection.execute("DROP TABLE content_lifecycle")
     reopened._connection.execute("DROP TABLE source_intakes")
+    set_legacy_schema_version(reopened, 7)
     reopened._connection.execute(
         "UPDATE content_schema_meta SET schema_version = 1 WHERE singleton = 1"
     )
@@ -847,6 +849,6 @@ def test_reopen_preserves_lifecycle_and_v1_schema_migrates_additively(tmp_path):
     migrated = ContentStore(database)
     assert migrated._connection.execute(
         "SELECT schema_version FROM content_schema_meta WHERE singleton = 1"
-    ).fetchone()[0] == ContentStore.SCHEMA_VERSION
+    ).fetchone()[0] == ContentStore.LEGACY_BASE_SCHEMA_VERSION
     assert migrated.get_asset(asset.asset_id) is not None
     migrated.close()

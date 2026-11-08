@@ -117,6 +117,10 @@ def test_executor_does_not_retry_after_skill_may_have_caused_a_side_effect(
     class SideEffectThenRaiseSkill(Skill):
         name = "side-effect-then-raise"
         actions = ["run_command"]
+        domain = "system"
+        action_permissions = {
+            "run_command": frozenset({"system.command"}),
+        }
 
         def __init__(self):
             self.calls = 0
@@ -156,6 +160,10 @@ def test_executor_preserves_uncertainty_when_result_audit_write_fails(tmp_path):
     class SideEffectThenAuditFailureSkill(Skill):
         name = "side-effect-before-audit-failure"
         actions = ["analyze"]
+        domain = "market"
+        action_permissions = {
+            "analyze": frozenset({"market.research.read"}),
+        }
 
         def __init__(self):
             self.calls = 0
@@ -415,6 +423,10 @@ database, side_effect = sys.argv[1:]
 class SideEffectThenRaise(Skill):
     name = "audit-side-effect-then-raise"
     actions = ["run_command"]
+    domain = "system"
+    action_permissions = {
+        "run_command": frozenset({"system.command"}),
+    }
 
     def execute(self, action, **kwargs):
         Path(side_effect).write_text("effect", encoding="ascii")

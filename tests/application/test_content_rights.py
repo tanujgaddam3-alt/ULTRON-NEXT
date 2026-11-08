@@ -11,6 +11,7 @@ from uuid import uuid4
 
 import pytest
 
+from tests.application.schema_test_utils import set_legacy_schema_version
 from ultron.application.content.policy import (
     ContentRightsPolicy,
     PlatformPolicyInputs,
@@ -23,10 +24,12 @@ from ultron.domain.content import (
     AcquisitionMethod,
     AgreementStatus,
     AssetCategory,
+    AssetLicenseVerificationState,
     ContentAssetUse,
     ContentPackage,
     ContentPackageVersion,
     ContentPlatform,
+    ContentTargetContext,
     EvidenceDecision,
     GrantorAuthority,
     GrantorIdentity,
@@ -42,8 +45,11 @@ from ultron.domain.content import (
     RightsState,
     RightsTerms,
     RightsUse,
+    OwnerRightsAttestation,
+    SourceAccessPermissionState,
     SourceAsset,
     SourceProvenance,
+    SourceReferenceRecord,
 )
 from ultron.security.identity.authorization import (
     AuthorizationContext,
@@ -360,6 +366,86 @@ def create_source(h: RightsHarness, asset: SourceAsset | None = None):
         claim=claim,
     )
     return asset, claim
+
+
+def register_owner_created_source(h: RightsHarness) -> SourceAsset:
+    now = datetime.now(UTC)
+    asset = SourceAsset(
+        asset_id="owner-created-footage",
+        owner_id="alice",
+        category=AssetCategory.FOOTAGE,
+        content_sha256=SOURCE_HASH,
+        provenance=SourceProvenance(
+            acquisition_method=AcquisitionMethod.OWNER_CREATED,
+            acquired_at=now,
+            original_filename="original-footage.mp4",
+            transfer_channel="whatsapp",
+            source_reference=f"urn:ultron:owner-created:{SOURCE_HASH}",
+            notes="Owner-created original footage.",
+        ),
+        storage_key="asset:owner-created-footage",
+        created_at=now,
+    )
+    analysis_use = make_use(
+        asset,
+        actions=frozenset({RightsAction.ANALYZE}),
+        duration_seconds=10,
+    )
+    source_reference = SourceReferenceRecord(
+        intake_id="owner-created-intake",
+        asset_id=asset.asset_id,
+        owner_id=asset.owner_id,
+        source_reference=asset.provenance.source_reference,
+        acquisition_method=AcquisitionMethod.OWNER_CREATED,
+        provenance=asset.provenance,
+        claimed_source_sha256=SOURCE_HASH,
+        access_permission_state=SourceAccessPermissionState.NOT_REQUIRED,
+        target_context=ContentTargetContext.YOUTUBE_SHORTS,
+        rights_use=analysis_use,
+        created_at=now,
+    )
+    payload = {
+        "asset": asset.model_dump(mode="json"),
+        "source_reference": source_reference.model_dump(mode="json"),
+    }
+    h.invoke(
+        "content_register_owner_created_asset",
+        payload,
+        h.service.register_asset,
+        asset=asset,
+        source_stream=BytesIO(SOURCE_BYTES),
+        source_reference=source_reference,
+    )
+    return asset
+
+
+def owner_attestation(asset: SourceAsset) -> OwnerRightsAttestation:
+    now = datetime.now(UTC)
+    return OwnerRightsAttestation(
+        attestation_id="owner-attestation-1",
+        asset_id=asset.asset_id,
+        asset_sha256=asset.content_sha256,
+        owner_id=asset.owner_id,
+        ownership_declaration=True,
+        ownership_basis="I created the original footage and own its included material.",
+        evidence_reference=None,
+        platform=ContentPlatform.YOUTUBE,
+        account_scope="channel-1",
+        territories=("US",),
+        permitted_actions=frozenset(
+            {
+                RightsAction.ANALYZE,
+                RightsAction.EDIT,
+                RightsAction.CREATE_DERIVATIVE,
+            }
+        ),
+        max_duration_seconds=60,
+        limitations="No use outside the declared platform and territory scope.",
+        valid_from=now - timedelta(minutes=1),
+        valid_until=now + timedelta(days=1),
+        created_at=now,
+        transfer_channel="whatsapp",
+    )
 
 
 def add_grant(
@@ -1590,6 +1676,7 @@ def test_schema_v2_migration_adds_agreement_links_without_losing_grants(tmp_path
     asset, claim = create_source(h)
     _evidence, grant = add_grant(h, asset, claim, make_terms())
     assert grant is not None
+    set_legacy_schema_version(h.store, 7)
     with h.store._lock:
         h.store._connection.execute("DROP TRIGGER rights_grants_no_update")
         h.store._connection.execute(
@@ -1611,7 +1698,7 @@ def test_schema_v2_migration_adds_agreement_links_without_losing_grants(tmp_path
     assert preserved.agreement_version is None
     assert migrated._connection.execute(
         "SELECT schema_version FROM content_schema_meta WHERE singleton = 1"
-    ).fetchone()[0] == ContentStore.SCHEMA_VERSION
+    ).fetchone()[0] == ContentStore.LEGACY_BASE_SCHEMA_VERSION
     migrated_harness = RightsHarness(database, store=migrated)
     legacy_decision = evaluate(migrated_harness, make_use(asset))
     assert legacy_decision.platform_rights_state == RightsState.BLOCKED
@@ -2024,7 +2111,7 @@ def test_missing_grantor_record_fails_closed_after_restart(tmp_path):
         h.store._connection.execute("PRAGMA foreign_keys = ON")
     h.store.close()
 
-    with pytest.raises(RuntimeError, match="broken foreign keys"):
+    with pytest.raises(RuntimeError, match="incomplete or inconsistent"):
         ContentStore(database)
 
 
@@ -2180,4 +2267,281 @@ def test_concurrent_agreement_status_changes_serialize(tmp_path):
     assert current is not None
     assert current.status in {AgreementStatus.SUSPENDED, AgreementStatus.REVOKED}
     assert evaluate(h, make_use(asset)).platform_rights_state != RightsState.CLEARED
+    h.store.close()
+
+
+def test_owner_self_attestation_is_scoped_audited_and_revocable(tmp_path):
+    h = RightsHarness(tmp_path / "owner-rights.db", reviewers=frozenset())
+    asset = register_owner_created_source(h)
+    attestation = owner_attestation(asset)
+    stored = h.invoke(
+        "content_attest_owner_created_rights",
+        attestation.model_dump(mode="json"),
+        h.service.attest_owner_created_rights,
+        attestation=attestation,
+    )
+    assert stored.status.value == "active"
+    assert stored.transfer_channel == "whatsapp"
+
+    analyze = make_use(
+        asset,
+        actions=frozenset({RightsAction.ANALYZE}),
+        duration_seconds=10,
+    )
+    analysis_payload = analyze.model_dump(mode="json")
+    analysis = h.invoke(
+        "content_evaluate_rights",
+        analysis_payload,
+        h.service.evaluate_rights,
+        use=analyze,
+    )
+    assert analysis.copyright_state is RightsState.SELF_ATTESTED
+    assert analysis.platform_rights_state is RightsState.SELF_ATTESTED
+    assert analysis.permits_requested_use
+    assert analysis.applicable_owner_attestation_ids == (stored.attestation_id,)
+    assert analysis.applicable_grant_ids == ()
+    assert analysis.publishing_authorization_state is PlatformDecisionState.NOT_AUTHORIZED
+
+    for action in (RightsAction.EDIT, RightsAction.CREATE_DERIVATIVE):
+        use = make_use(asset, actions=frozenset({action}), duration_seconds=10)
+        decision = h.invoke(
+            "content_evaluate_rights",
+            use.model_dump(mode="json"),
+            h.service.evaluate_rights,
+            use=use,
+        )
+        assert decision.platform_rights_state is RightsState.SELF_ATTESTED
+        assert decision.permits_requested_use
+
+    out_of_scope_uses = (
+        make_use(
+            asset,
+            platform=ContentPlatform.INSTAGRAM,
+            actions=frozenset({RightsAction.ANALYZE}),
+        ),
+        make_use(
+            asset,
+            account_id="another-channel",
+            actions=frozenset({RightsAction.ANALYZE}),
+        ),
+        make_use(
+            asset,
+            territory="CA",
+            actions=frozenset({RightsAction.ANALYZE}),
+        ),
+        make_use(asset, actions=frozenset({RightsAction.PUBLISH})),
+        make_use(
+            asset,
+            actions=frozenset(
+                {RightsAction.ANALYZE, RightsAction.COMMERCIAL_USE}
+            ),
+            commercial=True,
+        ),
+    )
+    for use in out_of_scope_uses:
+        decision = h.invoke(
+            "content_evaluate_rights",
+            use.model_dump(mode="json"),
+            h.service.evaluate_rights,
+            use=use,
+        )
+        assert not decision.permits_requested_use
+        assert decision.platform_rights_state is not RightsState.SELF_ATTESTED
+
+    changed_hash_use = analyze.model_copy(
+        update={"expected_asset_sha256": "0" * 64}
+    )
+    changed_hash_decision = h.invoke(
+        "content_evaluate_rights",
+        changed_hash_use.model_dump(mode="json"),
+        h.service.evaluate_rights,
+        use=changed_hash_use,
+    )
+    assert changed_hash_decision.platform_rights_state is RightsState.BLOCKED
+
+    reason = "Owner withdrew the self-attestation."
+    revoked = h.invoke(
+        "content_revoke_owner_rights_attestation",
+        {"attestation_id": stored.attestation_id, "reason": reason},
+        h.service.revoke_owner_created_rights,
+        attestation_id=stored.attestation_id,
+        reason=reason,
+    )
+    assert revoked.status.value == "revoked"
+    after_revoke = h.invoke(
+        "content_evaluate_rights",
+        analysis_payload,
+        h.service.evaluate_rights,
+        use=analyze,
+    )
+    assert after_revoke.platform_rights_state is RightsState.REVOKED
+    assert not after_revoke.permits_requested_use
+    with h.store._lock:
+        events = h.store._connection.execute(
+            """
+            SELECT event_type FROM owner_rights_attestation_events
+            WHERE attestation_id = ? ORDER BY sequence
+            """,
+            (stored.attestation_id,),
+        ).fetchall()
+    assert [row["event_type"] for row in events] == ["attested", "revoked"]
+    with h.store._lock, pytest.raises(sqlite3.IntegrityError, match="append-only"):
+        h.store._connection.execute(
+            """
+            UPDATE owner_rights_attestation_events
+            SET reason = 'rewritten'
+            WHERE attestation_id = ?
+            """,
+            (stored.attestation_id,),
+        )
+    h.store.close()
+
+
+def test_owner_self_attestation_rejects_non_owner_created_assets(tmp_path):
+    h = RightsHarness(tmp_path / "third-party-rights.db", reviewers=frozenset())
+    asset = make_asset()
+    h.invoke(
+        "content_register_asset",
+        asset.model_dump(mode="json"),
+        h.service.register_asset,
+        asset=asset,
+        source_stream=BytesIO(SOURCE_BYTES),
+    )
+    attestation = owner_attestation(asset)
+    with pytest.raises(PermissionError, match="owner-created asset"):
+        h.invoke(
+            "content_attest_owner_created_rights",
+            attestation.model_dump(mode="json"),
+            h.service.attest_owner_created_rights,
+            attestation=attestation,
+        )
+    assert h.store.get_owner_rights_attestation(
+        attestation.attestation_id,
+        asset.owner_id,
+    ) is None
+    h.store.close()
+
+
+def test_restricted_technical_test_keeps_unknown_rights_and_is_revocable(tmp_path):
+    h = RightsHarness(tmp_path / "restricted-test.db", reviewers=frozenset())
+    asset = make_asset()
+    h.invoke(
+        "content_register_asset",
+        asset.model_dump(mode="json"),
+        h.service.register_asset,
+        asset=asset,
+        source_stream=BytesIO(SOURCE_BYTES),
+    )
+    acknowledgement = h.service.RESTRICTED_TEST_ACKNOWLEDGEMENT
+    payload = {
+        "asset_id": asset.asset_id,
+        "asset_sha256": asset.content_sha256,
+        "acknowledgement": acknowledgement,
+        "license_verification_state": AssetLicenseVerificationState.UNKNOWN.value,
+        "allowed_operations": sorted(
+            {
+                "transcription",
+                "transcript_read",
+                "highlight",
+                "source_planning",
+                "private_render",
+                "project_render",
+            }
+        ),
+        "commercial_use": False,
+        "external_distribution": False,
+    }
+    permit = h.invoke(
+        "content_create_restricted_technical_test",
+        payload,
+        h.service.create_restricted_technical_test_permit,
+        asset_id=asset.asset_id,
+        asset_sha256=asset.content_sha256,
+        acknowledgement=acknowledgement,
+    )
+    license_record = h.store.get_latest_asset_license_record(
+        asset.asset_id,
+        asset.owner_id,
+    )
+    assert license_record is not None
+    assert license_record.verification_state is AssetLicenseVerificationState.UNKNOWN
+    assert license_record.original_source_url is None
+    assert license_record.license_identifier is None
+    assert permit.asset_sha256 == asset.content_sha256
+    assert permit.commercial_use is False
+    assert permit.external_distribution is False
+    analyze_use = make_use(
+        asset,
+        actions=frozenset({RightsAction.ANALYZE}),
+    )
+    with h.store._transaction() as connection:
+        decision = h.service.require_rights_or_restricted_test_in_transaction(
+            connection,
+            use=analyze_use,
+            principal=asset.owner_id,
+            operation="transcription",
+        )
+    assert not decision.permits_requested_use
+    assert decision.platform_rights_state is RightsState.UNKNOWN
+    with h.store._transaction() as connection, pytest.raises(
+        PermissionError,
+        match="project_render operation requires its explicit rights actions",
+    ):
+        h.service.require_rights_or_restricted_test_in_transaction(
+            connection,
+            use=analyze_use,
+            principal=asset.owner_id,
+            operation="project_render",
+        )
+    publish_use = make_use(
+        asset,
+        actions=frozenset({RightsAction.ANALYZE, RightsAction.PUBLISH}),
+    )
+    with h.store._transaction() as connection, pytest.raises(
+        PermissionError,
+        match="private_render operation requires its explicit rights actions",
+    ):
+        h.service.require_rights_or_restricted_test_in_transaction(
+            connection,
+            use=publish_use,
+            principal=asset.owner_id,
+            operation="private_render",
+        )
+
+    revoked = h.invoke(
+        "content_revoke_restricted_technical_test",
+        {"permit_id": permit.permit_id},
+        h.service.revoke_restricted_technical_test_permit,
+        permit_id=permit.permit_id,
+    )
+    assert revoked is None
+    stored_permit = h.store.get_restricted_technical_test(
+        permit.permit_id,
+        asset.owner_id,
+    )
+    assert stored_permit is not None
+    assert stored_permit.status.value == "revoked"
+    with h.store._transaction() as connection, pytest.raises(
+        PermissionError,
+        match="no matching restricted technical-test permit",
+    ):
+        h.service.require_rights_or_restricted_test_in_transaction(
+            connection,
+            use=analyze_use,
+            principal=asset.owner_id,
+            operation="transcription",
+        )
+    with h.store._lock:
+        events = h.store._connection.execute(
+            """
+            SELECT event_type FROM content_restricted_technical_test_events
+            WHERE permit_id = ? ORDER BY sequence
+            """,
+            (permit.permit_id,),
+        ).fetchall()
+    assert [row["event_type"] for row in events] == [
+        "permit_created",
+        "restricted_local_operation",
+        "permit_revoked",
+    ]
     h.store.close()

@@ -1285,12 +1285,9 @@ def test_evidence_persistence_failure_marks_preview_failed_and_never_success(
         store.close()
 
 
-def test_audio_evidence_storage_schema_is_created_additively_on_restart(tmp_path):
+def test_audio_evidence_schema_missing_from_v10_is_rejected_on_restart(tmp_path):
     database = tmp_path / "additive-evidence.db"
     store = ContentStore(database)
-    version = store._connection.execute(
-        "SELECT schema_version FROM content_schema_meta WHERE singleton = 1"
-    ).fetchone()["schema_version"]
     store.close()
 
     connection = sqlite3.connect(database)
@@ -1300,23 +1297,19 @@ def test_audio_evidence_storage_schema_is_created_additively_on_restart(tmp_path
     connection.commit()
     connection.close()
 
-    reopened = ContentStore(database)
-    try:
-        columns = {
-            row["name"]
-            for row in reopened._connection.execute(
-                "PRAGMA table_info(content_original_script_preview_audio_evidence)"
-            )
-        }
-        assert {"source_wav", "source_wav_sha256", "script_sha256", "artifact_sha256"} <= columns
-        assert reopened._connection.execute(
+    with pytest.raises(RuntimeError, match="incomplete or inconsistent"):
+        ContentStore(database)
+    with sqlite3.connect(database) as connection:
+        assert connection.execute(
             "SELECT schema_version FROM content_schema_meta WHERE singleton = 1"
-        ).fetchone()["schema_version"] == version
-    finally:
-        reopened.close()
+        ).fetchone()[0] == 10
+        assert connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' "
+            "AND name = 'content_original_script_preview_audio_evidence'"
+        ).fetchone() is None
 
 
-def test_startup_backfills_evidence_requirement_for_existing_new_format_previews(
+def test_incomplete_v10_preview_schema_is_rejected_without_backfill(
     tmp_path, monkeypatch
 ):
     database = tmp_path / "content.db"
@@ -1381,50 +1374,16 @@ def test_startup_backfills_evidence_requirement_for_existing_new_format_previews
     )
     store.close()
 
-    reopened = ContentStore(database)
-    reopened_service = OriginalScriptPreviewService(
-        store=reopened,
-        staging_directory=tmp_path / "staging",
-    )
-    try:
-        row = reopened._connection.execute(
-            """
-            SELECT audio_evidence_required
-            FROM content_original_script_previews
-            WHERE script_id = ?
-            """,
-            (preview["scriptId"],),
-        ).fetchone()
-        assert row["audio_evidence_required"] == 1
-        reopened._connection.execute(
-            "DROP TRIGGER content_original_script_preview_audio_evidence_no_delete"
-        )
-        reopened._connection.execute(
-            "DELETE FROM content_original_script_preview_audio_evidence WHERE script_id = ?",
-            (preview["scriptId"],),
-        )
-        response = reopened_service._response(
-            preview["scriptId"],
-            "operator",
-            include_artifact=False,
-        )
-        assert response["audioEvidence"]["status"] == "MISSING"
-        assert response["audioEvidence"]["legacy"] is False
-        assert response["productionManifest"]["qualityAssurance"]["state"] == (
-            "AUDIO_EVIDENCE_MISSING"
-        )
-        legacy_response = reopened_service._response(
-            legacy["scriptId"],
-            "operator",
-            include_artifact=False,
-        )
-        assert legacy_response["audioEvidence"]["status"] == "UNVERIFIABLE"
-        assert legacy_response["audioEvidence"]["legacy"] is True
-        assert legacy_response["productionManifest"]["qualityAssurance"]["state"] == (
-            "AUDIO_EVIDENCE_UNVERIFIABLE"
-        )
-    finally:
-        reopened.close()
+    with pytest.raises(RuntimeError, match="incomplete or inconsistent"):
+        ContentStore(database)
+    with sqlite3.connect(database) as connection:
+        assert connection.execute(
+            "SELECT 1 FROM pragma_table_info('content_original_script_previews') "
+            "WHERE name = 'audio_evidence_required'"
+        ).fetchone() is None
+        assert connection.execute(
+            "SELECT schema_version FROM content_schema_meta WHERE singleton = 1"
+        ).fetchone()[0] == 10
 
 
 def test_effectively_silent_local_narration_fails_and_is_audited(

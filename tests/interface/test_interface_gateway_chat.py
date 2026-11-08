@@ -160,6 +160,86 @@ def test_world_snapshot_failure_does_not_become_zero_telemetry(tmp_path):
     gateway.operation_store.close()
 
 
+def test_world_refresh_runs_off_loop_handles_timeout_and_keeps_heartbeat_alive(
+    tmp_path,
+    monkeypatch,
+    caplog,
+):
+    started = threading.Event()
+    release = threading.Event()
+    finished = threading.Event()
+    calls = []
+
+    gateway, _, websocket = make_authenticated_gateway(
+        tmp_path,
+        ConversationManager(llm=DeterministicTestLLM()),
+    )
+    gateway.runtime.state = SimpleNamespace(cycle_count=0, running=True)
+    monkeypatch.setattr(gateway_module, "HEARTBEAT_INTERVAL", 0.01)
+    monkeypatch.setattr(gateway_module, "WORLD_REFRESH_INTERVAL", 3600.0)
+    monkeypatch.setattr(gateway_module, "WORLD_REFRESH_TIMEOUT", 0.01)
+
+    class SlowWorld:
+        def refresh(self):
+            calls.append(threading.get_ident())
+            started.set()
+            release.wait(timeout=2)
+            finished.set()
+
+        def summary(self):
+            return {"system": {}, "entities": [], "entity_count": 0}
+
+    class BrokenWorld:
+        def refresh(self):
+            raise OSError("private test observer detail")
+
+    async def exercise():
+        heartbeat = asyncio.create_task(gateway._heartbeat())
+        gateway.container.world = SlowWorld()
+        await gateway._refresh_world()
+        assert await asyncio.to_thread(started.wait, 1)
+
+        await gateway.handle(websocket, {"action": "PING", "correlationId": "world"})
+        assert websocket.messages[-1]["type"] == "PONG"
+        await gateway._refresh_world()
+        assert len(calls) == 1
+
+        await asyncio.sleep(0.04)
+        assert heartbeat.done() is False
+        assert "component=world" in caplog.text
+        assert "timed out" in caplog.text
+        release.set()
+        assert await asyncio.to_thread(finished.wait, 1)
+        for _ in range(10):
+            if gateway._world_refresh_task is None:
+                break
+            await asyncio.sleep(0.01)
+        assert gateway._world_refresh_task is None
+
+        gateway.container.world = BrokenWorld()
+        await gateway._refresh_world()
+        for _ in range(10):
+            if gateway._world_refresh_task is None:
+                break
+            await asyncio.sleep(0.01)
+        assert gateway._world_refresh_task is None
+        assert "component=world exception_type=OSError" in caplog.text
+        assert "private test observer detail" not in caplog.text
+        assert heartbeat.done() is False
+        heartbeat.cancel()
+        try:
+            await heartbeat
+        except asyncio.CancelledError:
+            pass
+
+    try:
+        asyncio.run(exercise())
+    finally:
+        release.set()
+        gateway.operation_store.close()
+        gateway.container.conversation.history.connection.close()
+
+
 def test_chat_does_not_route_ordinary_text_through_privileged_command_dispatch(tmp_path):
     llm = DeterministicTestLLM("Test-only conversational result.")
     conversation = ConversationManager(llm=llm)

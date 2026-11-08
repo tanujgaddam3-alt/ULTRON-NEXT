@@ -491,6 +491,16 @@ are absent. A bare `writersStatus: VERIFIED` state edit or command line field
 is not accepted. The attestation is invalidated if the active quiesce operation
 ID changes or its timestamp becomes stale.
 
+Before recording the attestation, the manager must hold its current verified
+manager lease, confirm that the original gateway PID/start-tick identity has
+exited (including an explicitly distinguished PID reuse), and confirm that
+the configured gateway port has no listener. It persists these checks beside
+the operator attestation as manager recovery evidence. `resume-gateway`
+requires that matching evidence and repeats the lease, process-identity, and
+listener checks immediately before launch. This evidence does not establish
+that external database writers or restart-capable supervisors are stopped;
+that remains the operator's separately attested responsibility.
+
 Do not use the stack-wide `stop` action as a substitute.
 `restart-gateway` is also not a substitute because it starts a replacement.
 
@@ -508,11 +518,15 @@ protected manager state record, checks process identity, uses `ss` to observe
 configured listeners, and runs a service readiness probe only when the
 recorded process identity and expected listener ownership both verify.
 Missing, stale, malformed, or ambiguous information is reported as such; an
-unverified process is not health-probed. The output always reports
-`managerOwnershipStatus=NOT_VERIFIED` and `writersStatus=NOT_VERIFIED`.
-Since manager state may change concurrently, this is an observation rather
-than a lock-held snapshot or proof of active manager ownership or host-wide
-service ownership.
+unverified process is not health-probed. `managerOwnershipStatus` reports
+whether the lease is held by this manager, another recognized project manager,
+an unknown process, or cannot be verified. For a quiesced gateway, the status
+also reports the observed old-process identity and listener state.
+`writersStatus=OPERATOR_ATTESTED` is reported only when a current matching
+operator attestation is stored; it is not independent software verification
+of external writers. Since manager state may change concurrently, this is an
+observation rather than a lock-held snapshot or proof of host-wide service
+ownership.
 
 The manager records PID and process start ticks. Its process matcher also
 checks the executable, working directory, command identity, and managed

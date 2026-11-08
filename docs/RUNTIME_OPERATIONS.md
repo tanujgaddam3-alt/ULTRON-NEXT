@@ -172,8 +172,26 @@ anything other than `simulation`. The application container uses a local
 This startup default does not authorize a consequential skill action or
 enable live or paper-provider orders.
 
-The command remains in the foreground while it supervises services started
-by that invocation. Press Ctrl+C to gracefully stop only those services.
+The command remains in the foreground under the service manager's supervision.
+Terminal hangup does not terminate the manager; it continues supervising its
+children. Press Ctrl+C or send SIGTERM to request a graceful stack stop.
+Unexpected managed-child exit follows a fail-closed policy: the manager stops
+the other services it owns rather than automatically restarting a possibly
+stateful writer. Gateway lifecycle status is persisted separately as
+`STOPPED`, `STARTING`, `RUNNING`, `QUIESCING`, `QUIESCED`, `RECOVERING`, or
+`FAILED`, with a bounded transition history and a reason/timestamp for each
+transition. A `FAILED` gateway state blocks automatic startup until an
+explicit manager-controlled recovery path is completed.
+
+Gateway quiescence closes the listener after marking the gateway as no longer
+accepting protocol work. Requests received during the bounded drain window are
+rejected with `GATEWAY_QUIESCED`; already-running handlers are allowed to
+finish for up to 10 seconds before the listener closes; WebSocket closure is
+bounded to 2 seconds. The manager allows 14 seconds after its initial graceful
+shutdown signal before escalation. The bounded shutdown policy remains in
+force if a handler does not drain. Quiescing the gateway does not attest that
+external CRE writers or restart sources are stopped.
+
 `./stop-ultron.sh` stops verified launcher-managed processes across invocations;
 pre-existing services are never included in launcher state and remain running.
 Both commands are safe to repeat: healthy services are reused rather than

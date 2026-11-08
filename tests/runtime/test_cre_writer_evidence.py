@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 from pathlib import Path
 import sys
 import tempfile
@@ -106,6 +107,7 @@ class CreWriterEvidenceTests(unittest.TestCase):
             report = self.collector().collect()
 
         self.assertEqual(report["generatedAt"], "2026-11-02T03:04:05.000+00:00")
+        self.assertEqual(report["collectionStatus"], "COMPLETE")
         self.assertEqual(report["overallStatus"], "NOT VERIFIED")
         self.assertEqual(report["quiescenceStatus"], "NOT VERIFIED")
         self.assertFalse(report["databaseTarget"]["accessed"])
@@ -120,6 +122,22 @@ class CreWriterEvidenceTests(unittest.TestCase):
         self.assertEqual(
             len(report["processSnapshot"]["databaseDescriptorMatches"]),
             2,
+        )
+        assessments = {
+            item["category"]: item for item in report["writerAssessments"]
+        }
+        self.assertEqual(assessments["gateway"]["status"], "VERIFIED_PRESENT")
+        self.assertEqual(
+            assessments["database-open-descriptor"]["status"],
+            "VERIFIED_PRESENT",
+        )
+        self.assertEqual(assessments["cre-worker"]["status"], "UNKNOWN")
+        self.assertEqual(
+            assessments["systemd-system-services-and-timers"]["status"],
+            "NOT_INSPECTED",
+        )
+        self.assertTrue(
+            all(item.get("evidenceSource") for item in report["writerAssessments"])
         )
         self.assertEqual(
             report["restartPolicies"]["systemdServiceFiles"][0]["restartPolicy"],
@@ -140,6 +158,7 @@ class CreWriterEvidenceTests(unittest.TestCase):
         report = self.collector().collect()
 
         self.assertFalse(missing_state.exists())
+        self.assertEqual(report["collectionStatus"], "INCOMPLETE")
         self.assertEqual(report["overallStatus"], "INCOMPLETE")
         self.assertEqual(report["managerState"]["status"], "COULD_NOT_VERIFY")
         self.assertEqual(report["managerState"]["gatewayQuiesce"], "UNKNOWN")
@@ -164,6 +183,113 @@ class CreWriterEvidenceTests(unittest.TestCase):
         self.assertEqual(report["overallStatus"], "INCOMPLETE")
         self.assertEqual(report["processSnapshot"]["status"], "COULD_NOT_VERIFY")
         self.assertIsNone(report["processSnapshot"]["unreadableProcessCount"])
+
+
+    def test_host_process_inventory_uses_privileged_audit_helper(self) -> None:
+        collector = self.collector()
+        collector.proc_root = Path("/proc")
+        expected_database = str(Path(os.path.abspath(collector.database)))
+        helper_report = {
+            "generatedAt": "2026-11-02T03:04:05.000+00:00",
+            "helperVersion": 1,
+            "status": "COMPLETE",
+            "databaseTarget": expected_database,
+            "databaseAccessed": False,
+            "totalProcesses": 459,
+            "inspectedProcesses": 459,
+            "processRaceCount": 0,
+            "descriptorRaceCount": 0,
+            "resolvedDescriptorRaceCount": 1,
+            "failureCounts": {},
+            "databaseDescriptorMatches": [],
+            "snapshotOnly": True,
+            "quiescenceStatus": "NOT VERIFIED",
+        }
+        completed = subprocess.CompletedProcess(
+            args=["audit-helper"],
+            returncode=0,
+            stdout=json.dumps(helper_report),
+            stderr="",
+        )
+
+        with patch(
+            "cre_writer_evidence.subprocess.run",
+            return_value=completed,
+        ) as run:
+            inventory = collector._process_inventory()
+
+        self.assertEqual(inventory["status"], "CHECKED")
+        self.assertEqual(inventory["auditSource"], "ROOT_OWNED_HELPER")
+        self.assertEqual(inventory["totalProcesses"], 459)
+        self.assertEqual(inventory["descriptorRaceCount"], 0)
+        self.assertEqual(inventory["resolvedDescriptorRaceCount"], 1)
+        self.assertEqual(inventory["databaseDescriptorMatches"], [])
+        self.assertEqual(
+            run.call_args.args[0],
+            [
+                "/usr/bin/sudo",
+                "-n",
+                "/usr/local/libexec/ultron-cre-proc-audit",
+            ],
+        )
+        self.assertEqual(run.call_args.kwargs["timeout"], 30)
+
+    def test_host_process_inventory_fails_closed_when_helper_is_incomplete(self) -> None:
+        collector = self.collector()
+        collector.proc_root = Path("/proc")
+        helper_report = {
+            "status": "INCOMPLETE",
+            "failureCounts": {"permission_denied": 1},
+        }
+        completed = subprocess.CompletedProcess(
+            args=["audit-helper"],
+            returncode=2,
+            stdout=json.dumps(helper_report),
+            stderr="",
+        )
+
+        with patch(
+            "cre_writer_evidence.subprocess.run",
+            return_value=completed,
+        ):
+            inventory = collector._process_inventory()
+
+        self.assertEqual(inventory["status"], "INCOMPLETE")
+        self.assertEqual(inventory["databaseDescriptorMatches"], [])
+        self.assertIn("privileged process audit", inventory["reason"])
+
+    def test_host_process_inventory_rejects_wrong_database_target(self) -> None:
+        collector = self.collector()
+        collector.proc_root = Path("/proc")
+        helper_report = {
+            "generatedAt": "2026-11-02T03:04:05.000+00:00",
+            "helperVersion": 1,
+            "status": "COMPLETE",
+            "databaseTarget": "/tmp/not-ultron.db",
+            "databaseAccessed": False,
+            "totalProcesses": 1,
+            "inspectedProcesses": 1,
+            "processRaceCount": 0,
+            "descriptorRaceCount": 0,
+            "failureCounts": {},
+            "databaseDescriptorMatches": [],
+            "snapshotOnly": True,
+            "quiescenceStatus": "NOT VERIFIED",
+        }
+        completed = subprocess.CompletedProcess(
+            args=["audit-helper"],
+            returncode=0,
+            stdout=json.dumps(helper_report),
+            stderr="",
+        )
+
+        with patch(
+            "cre_writer_evidence.subprocess.run",
+            return_value=completed,
+        ):
+            inventory = collector._process_inventory()
+
+        self.assertEqual(inventory["status"], "COULD_NOT_VERIFY")
 
 
 if __name__ == "__main__":

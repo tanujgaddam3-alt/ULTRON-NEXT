@@ -5,6 +5,7 @@ import secrets
 import socket
 import sys
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -27,6 +28,7 @@ from ultron.security.identity.authorization import (
     resource_fingerprint,
 )
 from ultron.security.identity.authenticator import WebSocketAuthenticator
+from ultron.skills.financial.skill import FinancialSkill
 from ultron.skills.manager import SkillManager
 from ultron.skills.terminal.skill import TerminalSkill
 
@@ -183,6 +185,55 @@ def test_credentials_sessions_expiry_revocation_and_approval_binding():
     assert blocked.authenticate(blocked_socket, token) is None
 
 
+def test_authenticated_activity_refreshes_idle_timeout_but_not_absolute_lifetime(
+    monkeypatch,
+):
+    token = secrets.token_urlsafe(32)
+    authorizer = WebSocketAuthenticator(
+        token,
+        session_ttl_seconds=30,
+        idle_ttl_seconds=10,
+    )
+    now = [100.0]
+    monkeypatch.setattr("ultron.security.identity.authenticator.time.monotonic", lambda: now[0])
+    websocket = SessionSocket()
+    session = authorizer.authenticate(websocket, token)
+    assert session is not None
+
+    now[0] = 109.0
+    assert authorizer.touch(websocket)
+    now[0] = 118.0
+    assert authorizer.touch(websocket)
+
+    now[0] = 127.0
+    assert authorizer.touch(websocket)
+    assert authorizer.seconds_until_expiry(websocket) == 3.0
+    now[0] = 130.0
+    assert not authorizer.is_authenticated(websocket)
+    assert not authorizer.touch(websocket)
+
+
+def test_unauthenticated_or_expired_activity_cannot_refresh_session(monkeypatch):
+    token = secrets.token_urlsafe(32)
+    authorizer = WebSocketAuthenticator(
+        token,
+        session_ttl_seconds=20,
+        idle_ttl_seconds=5,
+    )
+    now = [200.0]
+    monkeypatch.setattr("ultron.security.identity.authenticator.time.monotonic", lambda: now[0])
+    unauthenticated = SessionSocket()
+    assert not authorizer.touch(unauthenticated)
+    assert authorizer.authenticate(unauthenticated, "invalid") is None
+    assert not authorizer.touch(unauthenticated)
+
+    websocket = SessionSocket()
+    authorizer.authenticate(websocket, token)
+    now[0] = 205.0
+    assert not authorizer.touch(websocket)
+    assert not authorizer.is_authenticated(websocket)
+
+
 def test_signed_authorization_context_binds_exact_action_and_parameters():
     token = secrets.token_urlsafe(32)
     authorizer = WebSocketAuthenticator(token, "context-binding-operator")
@@ -231,6 +282,94 @@ def test_signed_authorization_context_binds_exact_action_and_parameters():
         action="write_file",
         resource_fingerprint=scope,
     )
+
+
+def test_paper_trade_requires_claimed_signed_dispatch_and_records_replay_denial(
+    tmp_path,
+):
+    class PaperAgentStub:
+        def __init__(self):
+            self.calls = 0
+
+        def paper_trade(self, *, analysis):
+            self.calls += 1
+            return {"success": True, "status": "paper-test"}
+
+    token = secrets.token_urlsafe(32)
+    authority = WebSocketAuthenticator(token, "paper-operator")
+    websocket = SessionSocket()
+    authority.authenticate(websocket, token)
+    parameters = {"symbol": "ABC", "analysis": {"symbol": "ABC"}}
+    operation = {
+        "operationId": "paper-order-operation",
+        "correlationId": "paper-order-correlation",
+        "requestFingerprint": "paper-order-request",
+    }
+    grant = authority.authorize(
+        websocket=websocket,
+        operation=operation,
+        purpose="execute",
+        request_correlation_id="paper-order-request-correlation",
+        action="paper_trade",
+        resource_fingerprint=resource_fingerprint(
+            "paper_trade",
+            parameters,
+        ),
+    )
+    assert grant is not None
+    store = SQLiteOperationStore(tmp_path / "paper-dispatch.db")
+    now = datetime.now(UTC).isoformat()
+    store.create(
+        {
+            "operationId": operation["operationId"],
+            "correlationId": operation["correlationId"],
+            "requestFingerprint": operation["requestFingerprint"],
+            "lifecycleState": "EXECUTING",
+            "createdAt": now,
+            "updatedAt": now,
+        }
+    )
+    persisted_grant = dict(grant)
+    persisted_grant["correlationId"] = grant["requestCorrelationId"]
+    assert store.claim_authorization_grant(persisted_grant)
+    context = AuthorizationContext.from_grant(grant)
+
+    manager = SkillManager()
+    financial_agent = PaperAgentStub()
+    manager.register(FinancialSkill(financial_agent))
+    executor = Executor(
+        skills=manager,
+        authorization_authority=authority,
+        operation_store=store,
+    )
+    result = executor.execute(
+        Plan(
+            goal="Test explicitly authorized paper dispatch",
+            steps=[
+                PlanStep(
+                    order=1,
+                    action="paper_trade",
+                    parameters=parameters,
+                )
+            ],
+        ),
+        operation_id=context.operation_id,
+        correlation_id=context.operation_correlation_id,
+        authorization_context=context,
+    )
+
+    assert result["success"] is True
+    assert financial_agent.calls == 1
+
+    with pytest.raises(PermissionError, match="unclaimed, expired, or replayed"):
+        manager.execute(
+            "paper_trade",
+            authorization_context=context,
+            **parameters,
+        )
+    assert financial_agent.calls == 1
+    assert store.execution_audit()[-1]["event"] == "SKILL_PERMISSION_DENIED"
+    store.close()
 
 
 def test_executor_blocks_context_scope_mismatch_before_skill_invocation(

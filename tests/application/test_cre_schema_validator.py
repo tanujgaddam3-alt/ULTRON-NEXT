@@ -7,14 +7,12 @@ import pytest
 
 from scripts import cre_schema_validator as validator
 from ultron.application.content.store import ContentStore
+from tests.application.schema_test_utils import set_legacy_schema_version
 
 
 def _fixture_at_version(path: Path, version: int) -> None:
     store = ContentStore(path, recover_interrupted_jobs=False)
-    if version >= 9:
-        assert store.migrate_publishing_attempt_schema() == 9
-    if version >= 10:
-        assert store.migrate_private_render_operation_schema() == 10
+    set_legacy_schema_version(store, version)
     store.close()
 
 
@@ -53,6 +51,37 @@ def test_baseline_matches_source_manifest_and_is_read_only(tmp_path, version):
     assert result["relationships"]
     assert all(item["orphanRows"] == 0 for item in result["relationships"])
     assert _database_bytes(database) == before
+
+
+@pytest.mark.parametrize("version", [7, 9, 10])
+def test_historical_fixture_has_no_post_version_additive_objects(tmp_path, version):
+    database = tmp_path / f"historical-{version}.sqlite"
+    _fixture_at_version(database, version)
+    connection = sqlite3.connect(database)
+    names = {
+        row[0]
+        for row in connection.execute(
+            """
+            SELECT name FROM sqlite_master
+            WHERE name NOT LIKE 'sqlite_%'
+            """
+        )
+    }
+    connection.close()
+
+    assert "content_source_identities" not in names
+    assert "content_source_identity_schema_meta" not in names
+    assert "owner_rights_attestations" not in names
+    assert "owner_rights_attestation_schema_meta" not in names
+
+
+def test_schema_sql_normalization_preserves_string_literals():
+    failed = "CREATE TRIGGER guard BEFORE UPDATE WHEN NEW.state = 'failed'"
+    failed_upper = "CREATE TRIGGER guard BEFORE UPDATE WHEN NEW.state = 'FAILED'"
+
+    assert ContentStore._normalize_schema_sql(failed) != (
+        ContentStore._normalize_schema_sql(failed_upper)
+    )
 
 
 @pytest.mark.parametrize("version", [7, 9, 10])
@@ -150,6 +179,27 @@ def test_schema_object_definition_drift_is_reported_without_mutation(tmp_path):
             "name": "content_private_render_operation_identity_immutable",
         }
     ]
+    assert _database_bytes(database) == before
+
+
+def test_schema_view_is_reported_as_unexpected_without_mutation(tmp_path):
+    database = tmp_path / "view-drift.sqlite"
+    _fixture_at_version(database, 10)
+    connection = sqlite3.connect(database)
+    connection.execute(
+        "CREATE VIEW unexpected_content_view AS SELECT 1 AS value"
+    )
+    connection.commit()
+    connection.close()
+    before = _database_bytes(database)
+
+    result = validator.inspect_cre_fixture(database)
+
+    assert result["status"] == "FAIL"
+    assert {
+        (item["type"], item["name"])
+        for item in result["schemaObjects"]["unexpected"]
+    } >= {("view", "unexpected_content_view")}
     assert _database_bytes(database) == before
 
 

@@ -12,6 +12,7 @@ from ultron.financial.trading.market.adapters.paper import (
 from ultron.financial.trading.market_data.service import (
     MarketDataService,
 )
+from ultron.financial.trading.models import Order, OrderSide
 from ultron.financial.trading.paper_broker import (
     PaperBroker,
 )
@@ -29,7 +30,10 @@ def make_stack():
     market_data = MarketDataService(adapter)
 
     engine = PaperTradingEngine(broker)
-    controller = FinancialTradingController(engine)
+    controller = FinancialTradingController(
+        engine,
+        market_data=market_data,
+    )
 
     return (
         controller,
@@ -106,26 +110,122 @@ def test_market_price_change_can_be_used_by_controller():
 
 
 def test_stale_market_timestamp_is_rejected_by_controller():
-    controller, broker, _, _ = make_stack()
-
-    stale_timestamp = (
-        datetime.now(UTC)
-        - timedelta(seconds=60)
-    )
+    controller, broker, adapter, _ = make_stack()
+    adapter.get_snapshot = lambda symbol: {
+        "symbol": symbol,
+        "price": 100.0,
+        "timestamp": datetime.now(UTC) - timedelta(seconds=60),
+    }
 
     result = controller.execute(
         analysis=make_analysis(),
         price=100.0,
-        price_timestamp=stale_timestamp,
+        price_timestamp=datetime.now(UTC),
     )
 
     assert result["success"] is False
-    assert result["stage"] == "price_guard"
+    assert result["stage"] == "market_data"
     assert "stale" in result["reason"].lower()
 
     assert broker.snapshot(
         {"TEST": 100.0}
     )["trade_count"] == 0
+
+
+def test_controller_ignores_caller_entry_price_and_uses_verified_quote():
+    controller, broker, _, _ = make_stack()
+
+    result = controller.execute(
+        analysis=make_analysis(),
+        price=9999.0,
+        price_timestamp=datetime.now(UTC),
+    )
+
+    assert result["success"] is True
+    assert result["execution"]["price"] == 100.0
+    assert broker._orders
+    assert next(iter(broker._orders.values())).price == 100.0
+
+
+def test_controller_rejects_missing_instrument_metadata():
+    class MissingInstrumentAdapter(PaperMarketAdapter):
+        def get_instrument(self, symbol):
+            return None
+
+    broker = PaperBroker(initial_capital=100_000)
+    adapter = MissingInstrumentAdapter(broker, prices={"TEST": 100.0})
+    adapter.connect()
+    controller = FinancialTradingController(
+        PaperTradingEngine(broker),
+        market_adapter=adapter,
+    )
+
+    result = controller.execute(
+        analysis=make_analysis(),
+        price=100.0,
+        price_timestamp=datetime.now(UTC),
+    )
+
+    assert result["success"] is False
+    assert result["stage"] == "instrument_validation"
+    assert broker._orders == {}
+
+
+def test_controller_uses_fresh_marks_for_existing_positions():
+    from ultron.financial.trading.models import Position
+
+    broker = PaperBroker(initial_capital=100_000)
+    broker.portfolio.positions["OLD"] = Position(
+        symbol="OLD",
+        quantity=10.0,
+        average_price=50.0,
+    )
+    adapter = PaperMarketAdapter(
+        broker,
+        prices={"TEST": 100.0, "OLD": 55.0},
+    )
+    adapter.connect()
+    controller = FinancialTradingController(
+        PaperTradingEngine(broker),
+        market_adapter=adapter,
+    )
+
+    result = controller.execute(
+        analysis=make_analysis(),
+        price=100.0,
+        price_timestamp=datetime.now(UTC),
+    )
+
+    assert result["success"] is True
+    coverage = result["execution"]["risk_coverage"]
+    assert coverage["existing_position_marks"] == {
+        "OLD": "provided_market_price"
+    }
+    assert coverage["currency_exposure"] == "supported"
+    assert coverage["correlation_risk"] == "unsupported_missing_verified_matrix"
+    assert result["execution"]["portfolio_risk"]["currency_exposure"] == (
+        550.0 + result["execution"]["quantity"] * 100.0
+    )
+
+
+def test_paper_market_data_adapter_cannot_submit_orders():
+    broker = PaperBroker(initial_capital=100_000)
+    adapter = PaperMarketAdapter(broker, prices={"TEST": 100.0})
+    adapter.connect()
+
+    order = Order(
+        symbol="TEST",
+        side=OrderSide.BUY,
+        quantity=1.0,
+        price=100.0,
+    )
+
+    try:
+        adapter.place_order(order)
+        assert False, "Expected direct adapter submission to be blocked."
+    except RuntimeError as exc:
+        assert "FinancialTradingController" in str(exc)
+    assert broker._orders == {}
 
 
 def test_market_adapter_price_validation_reaches_controller():

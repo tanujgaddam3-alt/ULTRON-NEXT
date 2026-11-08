@@ -6,10 +6,20 @@ import multiprocessing
 import os
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime, timedelta
+from io import BytesIO
 from uuid import uuid4
 
 import pytest
 
+from tests.application.schema_test_utils import set_legacy_schema_version
+from tests.application.test_content_lifecycle import Harness
+from tests.application.test_content_rights import (
+    RightsHarness,
+    add_grant,
+    make_terms,
+)
+from ultron.application.content.service import ContentRightsService
 from ultron.application.content.store import (
     ContentStore,
     VisualAnalysisConflictError,
@@ -30,6 +40,24 @@ from ultron.domain.content_visual_intelligence import (
     VisualInferenceResources,
     VisualVideoAnalysis,
 )
+from ultron.domain.content import (
+    AcquisitionMethod,
+    AssetCategory,
+    ContentPlatform,
+    ContentEditProject,
+    ContentTargetContext,
+    OwnershipClaim,
+    RightsAction,
+    RightsUse,
+    SourceAccessPermissionState,
+    SourceAsset,
+    SourceProvenance,
+    SourceReferenceRecord,
+)
+from ultron.domain.content_owner_processing import (
+    OwnerLocalProcessingAuthorization,
+    OwnerLocalProcessingOperation,
+)
 from ultron.security.identity.authorization import (
     AuthorizationContext,
     resource_fingerprint,
@@ -47,10 +75,23 @@ def _authorized_service(store: ContentStore, principal: str):
     authority = WebSocketAuthenticator(_TOKEN, principal)
     websocket = object()
     assert authority.authenticate(websocket, _TOKEN) is not None
+    content_rights = ContentRightsService(store=store, authority=authority)
     return (
-        VisualAnalysisLifecycleService(store=store, authority=authority),
+        VisualAnalysisLifecycleService(
+            store=store,
+            authority=authority,
+            content_rights=content_rights,
+        ),
         authority,
         websocket,
+    )
+
+
+def _worker(store: ContentStore) -> VisualAnalysisWorker:
+    authority = WebSocketAuthenticator(_TOKEN, "alice")
+    return VisualAnalysisWorker(
+        store=store,
+        content_rights=ContentRightsService(store=store, authority=authority),
     )
 
 
@@ -115,14 +156,413 @@ def _store(tmp_path, *, migrate_visual: bool = True) -> ContentStore:
     store = ContentStore(tmp_path / "disposable-cre.db")
     store.migrate_publishing_attempt_schema()
     store.migrate_private_render_operation_schema()
+    store.migrate_owner_local_processing_schema()
     if migrate_visual:
         assert store.migrate_visual_analysis_schema() == 2
         assert store.migrate_visual_analysis_schema() == 2
     return store
 
 
-def _insert_project_and_asset(store: ContentStore) -> None:
+def _register_owner_asset_with_operations(
+    harness: Harness,
+    *,
+    asset_id: str,
+    operations: frozenset[OwnerLocalProcessingOperation],
+) -> SourceAsset:
+    asset_sha256 = hashlib.sha256(_MEDIA).hexdigest()
+    now = datetime.now(UTC)
+    source_reference_value = f"urn:ultron:owner-created:{asset_sha256}"
+    asset = SourceAsset(
+        asset_id=asset_id,
+        owner_id=harness.authority.principal,
+        category=AssetCategory.FOOTAGE,
+        content_sha256=asset_sha256,
+        provenance=SourceProvenance(
+            acquisition_method=AcquisitionMethod.OWNER_CREATED,
+            acquired_at=now,
+            original_filename=f"{asset_id}.mp4",
+            transfer_channel="direct_test_upload",
+            source_reference=source_reference_value,
+        ),
+        storage_key=f"{asset_id}-input",
+        created_at=now,
+    )
+    use = RightsUse(
+        asset_id=asset_id,
+        expected_asset_sha256=asset_sha256,
+        platform=ContentPlatform.YOUTUBE,
+        account_id="private-owner",
+        territory="US",
+        actions=frozenset({RightsAction.ANALYZE}),
+        commercial_intent=False,
+        monetization_intent=False,
+        duration_seconds=10,
+    )
+    source_reference = SourceReferenceRecord(
+        intake_id=f"{asset_id}-intake",
+        asset_id=asset_id,
+        owner_id=harness.authority.principal,
+        source_reference=source_reference_value,
+        acquisition_method=AcquisitionMethod.OWNER_CREATED,
+        provenance=asset.provenance,
+        claimed_source_sha256=asset_sha256,
+        access_permission_state=SourceAccessPermissionState.NOT_REQUIRED,
+        target_context=ContentTargetContext.YOUTUBE_SHORTS,
+        rights_use=use,
+        created_at=now,
+    )
+    payload = {
+        "asset": asset.model_dump(mode="json"),
+        "source_reference": source_reference.model_dump(mode="json"),
+        "owner_local_processing_operations": sorted(
+            operation.value for operation in operations
+        ),
+    }
+    harness.service.register_asset(
+        asset,
+        source_stream=BytesIO(_MEDIA),
+        context=harness.context("content_register_owner_created_asset", payload),
+        command_id=f"register-{asset_id}",
+        source_reference=source_reference,
+        owner_local_processing_operations=operations,
+    )
+    return asset
+
+
+def test_visual_analysis_request_requires_exact_owner_asset_authorization(tmp_path):
+    database = tmp_path / "owner-visual-analysis.db"
+    harness = Harness(database)
+    harness.store.migrate_owner_local_processing_schema()
+    harness.store.migrate_visual_analysis_schema()
+    permitted_asset = _register_owner_asset_with_operations(
+        harness,
+        asset_id="owner-visual-permitted",
+        operations=frozenset({OwnerLocalProcessingOperation.ANALYZE_VIDEO}),
+    )
+    limited_asset = _register_owner_asset_with_operations(
+        harness,
+        asset_id="owner-visual-limited",
+        operations=frozenset({OwnerLocalProcessingOperation.TRANSCRIBE}),
+    )
+    assert permitted_asset.content_sha256 == limited_asset.content_sha256
+    for asset in (permitted_asset, limited_asset):
+        project = ContentEditProject(
+            project_id=f"project-{asset.asset_id}",
+            owner_id=asset.owner_id,
+            source_asset_ids=(asset.asset_id,),
+            script="Owner local visual-analysis authorization test.",
+        )
+        harness.invoke(
+            "content_create_edit_project",
+            project.model_dump(mode="json"),
+            harness.service.create_edit_project,
+            project=project,
+            command_id=f"create-{project.project_id}",
+        )
+    service = VisualAnalysisLifecycleService(
+        store=harness.store,
+        authority=harness.authority,
+        content_rights=ContentRightsService(
+            store=harness.store,
+            authority=harness.authority,
+        ),
+    )
+
+    def request(asset: SourceAsset, key: str) -> VisualAnalysisRequest:
+        return VisualAnalysisRequest(
+            analysis_id=str(uuid4()),
+            owner_id=asset.owner_id,
+            project_id=f"project-{asset.asset_id}",
+            asset_id=asset.asset_id,
+            asset_sha256=asset.content_sha256,
+            idempotency_key=key,
+            provider_id="local-model",
+            model_id="test-vision",
+            model_version=_MODEL_DIGEST,
+            prompt_version="owner-local-v1",
+            schema_version="visual-v1",
+            sampler_version="frame-sampler-v1",
+            timestamps_seconds=(0.5,),
+        )
+
+    accepted, created = _create(
+        service,
+        harness.authority,
+        harness.websocket,
+        request(permitted_asset, "permitted-visual-request"),
+    )
+    assert created is True
+    assert accepted.state.value == "queued"
+    with pytest.raises(PermissionError):
+        _create(
+            service,
+            harness.authority,
+            harness.websocket,
+            request(limited_asset, "limited-visual-request"),
+        )
+    harness.close()
+
+
+def test_visual_analysis_fails_closed_without_local_authorization_or_rights(tmp_path):
+    store = _store(tmp_path)
+    asset = _insert_project_and_asset(
+        store,
+        authorize_owner_local=False,
+        acquisition_method=AcquisitionMethod.AUTHORIZED_PROVIDER,
+    )
+    service, authority, websocket = _authorized_service(store, "alice")
+    worker = _worker(store)
+    request = _request()
+    with pytest.raises(PermissionError):
+        _create(service, authority, websocket, request)
+    assert store._connection.execute(
+        "SELECT COUNT(*) FROM content_visual_analyses"
+    ).fetchone()[0] == 0
+
+    rights_harness = RightsHarness(store.database_identity, store=store)
+    claim = OwnershipClaim(
+        claim_id="visual-analysis-independent-rights-claim",
+        asset_id=asset.asset_id,
+        claimant_id=asset.owner_id,
+        rights_holder="Studio North",
+        authority_description="Verified rights holder",
+    )
+    rights_harness.invoke(
+        "content_add_ownership_claim",
+        claim.model_dump(mode="json"),
+        rights_harness.service.add_ownership_claim,
+        claim=claim,
+    )
+    add_grant(
+        rights_harness,
+        asset,
+        claim,
+        make_terms(
+            actions=frozenset({RightsAction.ANALYZE}),
+            account_scope="private-owner",
+            max_duration_seconds=10,
+        ),
+    )
+
+    accepted, created = _create(service, authority, websocket, request)
+    assert created is True
+    assert accepted.state is VisualAnalysisState.QUEUED
+    worker.start()
+    assert worker.claim(accepted.analysis_id, "alice") is True
+    worker.complete(accepted.analysis_id, "alice", _result(request))
+    assert store.get_visual_analysis(
+        accepted.analysis_id,
+        "alice",
+    ).state is VisualAnalysisState.COMPLETED
+    store.close()
+
+
+def test_visual_analysis_rejects_hash_mismatch_revocation_and_expiry(
+    tmp_path,
+    monkeypatch,
+):
+    store = _store(tmp_path)
+    _insert_project_and_asset(store)
+    service, authority, websocket = _authorized_service(store, "alice")
+    authorization = store.get_owner_local_processing_authorization_for_asset(
+        owner_id="alice",
+        asset_id="asset-1",
+        asset_sha256=_MEDIA_SHA256,
+    )
+    assert authorization is not None
+    with pytest.raises(ValueError, match="digest does not match"):
+        _create(
+            service,
+            authority,
+            websocket,
+            _request().model_copy(update={"asset_sha256": "b" * 64}),
+        )
+
+    with store._transaction() as connection:
+        store.revoke_owner_local_processing_authorization_in_transaction(
+            connection,
+            authorization_id=authorization.authorization_id,
+            owner_id="alice",
+            reason="visual authorization regression",
+        )
+    with pytest.raises(PermissionError):
+        _create(
+            service,
+            authority,
+            websocket,
+            _request(idempotency_key="revoked-authorization"),
+        )
+    store.close()
+
+    expired_directory = tmp_path / "expired"
+    expired_directory.mkdir()
+    expired_store = _store(expired_directory)
+    _insert_project_and_asset(expired_store)
+    expired_service, expired_authority, expired_websocket = _authorized_service(
+        expired_store,
+        "alice",
+    )
+    expired_authorization = (
+        expired_store.get_owner_local_processing_authorization_for_asset(
+            owner_id="alice",
+            asset_id="asset-1",
+            asset_sha256=_MEDIA_SHA256,
+        )
+    )
+    assert expired_authorization is not None
+    expired_now = expired_authorization.expires_at + timedelta(seconds=1)
+    monkeypatch.setattr(expired_store, "_now", lambda: expired_now.isoformat())
+    with pytest.raises(PermissionError, match="expired"):
+        _create(
+            expired_service,
+            expired_authority,
+            expired_websocket,
+            _request(idempotency_key="expired-authorization"),
+        )
+    expired_store.close()
+
+
+def test_visual_analysis_claim_and_completion_recheck_revocation_atomically(
+    tmp_path,
+    monkeypatch,
+):
+    store = _store(tmp_path)
+    _insert_project_and_asset(store)
+    service, authority, websocket = _authorized_service(store, "alice")
+    request = _request()
+    queued, _ = _create(service, authority, websocket, request)
+    worker = _worker(store)
+    worker.start()
+    authorization = store.get_owner_local_processing_authorization_for_asset(
+        owner_id="alice",
+        asset_id="asset-1",
+        asset_sha256=_MEDIA_SHA256,
+    )
+    assert authorization is not None
+    original_claim = store.claim_visual_analysis
+
+    def revoke_before_claim(
+        analysis_id,
+        owner_id,
+        *,
+        worker_token,
+        authorization_check,
+    ):
+        with store._transaction() as connection:
+            store.revoke_owner_local_processing_authorization_in_transaction(
+                connection,
+                authorization_id=authorization.authorization_id,
+                owner_id="alice",
+                reason="revoke before claim",
+            )
+        return original_claim(
+            analysis_id,
+            owner_id,
+            worker_token=worker_token,
+            authorization_check=authorization_check,
+        )
+
+    monkeypatch.setattr(store, "claim_visual_analysis", revoke_before_claim)
+    with pytest.raises(PermissionError):
+        worker.claim(queued.analysis_id, "alice")
+    denied = store.get_visual_analysis(queued.analysis_id, "alice")
+    assert denied is not None
+    assert denied.state is VisualAnalysisState.FAILED
+    assert denied.failure_code == "AUTHORIZATION_DENIED"
+    assert denied.result is None
+    assert [
+        event.to_state
+        for event in store.list_visual_analysis_events(
+            queued.analysis_id,
+            "alice",
+        )
+    ] == [VisualAnalysisState.QUEUED, VisualAnalysisState.FAILED]
+    store.close()
+
+    completion_directory = tmp_path / "completion"
+    completion_directory.mkdir()
+    completion_store = _store(completion_directory)
+    _insert_project_and_asset(completion_store)
+    completion_service, completion_authority, completion_websocket = (
+        _authorized_service(completion_store, "alice")
+    )
+    completion_request = _request()
+    record, _ = _create(
+        completion_service,
+        completion_authority,
+        completion_websocket,
+        completion_request,
+    )
+    completion_worker = _worker(completion_store)
+    completion_worker.start()
+    assert completion_worker.claim(record.analysis_id, "alice")
+    completion_authorization = (
+        completion_store.get_owner_local_processing_authorization_for_asset(
+            owner_id="alice",
+            asset_id="asset-1",
+            asset_sha256=_MEDIA_SHA256,
+        )
+    )
+    assert completion_authorization is not None
+    with completion_store._transaction() as connection:
+        completion_store.revoke_owner_local_processing_authorization_in_transaction(
+            connection,
+            authorization_id=completion_authorization.authorization_id,
+            owner_id="alice",
+            reason="revoke before completion",
+        )
+    with pytest.raises(PermissionError):
+        completion_worker.complete(
+            record.analysis_id,
+            "alice",
+            _result(completion_request),
+        )
+    failed = completion_store.get_visual_analysis(record.analysis_id, "alice")
+    assert failed is not None
+    assert failed.state is VisualAnalysisState.FAILED
+    assert failed.result is None
+    completion_store.close()
+
+
+def _insert_project_and_asset(
+    store: ContentStore,
+    *,
+    authorize_owner_local: bool = True,
+    operations: frozenset[OwnerLocalProcessingOperation] = frozenset(
+        OwnerLocalProcessingOperation
+    ),
+    acquisition_method: AcquisitionMethod = AcquisitionMethod.OWNER_CREATED,
+) -> SourceAsset:
     now = store._now()
+    created_at = datetime.fromisoformat(now)
+    source_reference = f"urn:ultron:test-source:{_MEDIA_SHA256}"
+    provenance = SourceProvenance(
+        acquisition_method=acquisition_method,
+        acquired_at=created_at,
+        original_filename="asset-1.mp4",
+        transfer_channel="direct_test_upload",
+        source_reference=source_reference,
+    )
+    rights_use = RightsUse(
+        asset_id="asset-1",
+        expected_asset_sha256=_MEDIA_SHA256,
+        platform=ContentPlatform.YOUTUBE,
+        account_id="private-owner",
+        territory="US",
+        actions=frozenset({RightsAction.ANALYZE}),
+        commercial_intent=False,
+        monetization_intent=False,
+        duration_seconds=10,
+    )
+    asset = SourceAsset(
+        asset_id="asset-1",
+        owner_id="alice",
+        category=AssetCategory.FOOTAGE,
+        content_sha256=_MEDIA_SHA256,
+        provenance=provenance,
+        storage_key="synthetic-asset-1",
+        created_at=created_at,
+    )
     with store._transaction() as connection:
         connection.execute(
             """
@@ -136,9 +576,32 @@ def _insert_project_and_asset(store: ContentStore) -> None:
                 "alice",
                 "footage",
                 _MEDIA_SHA256,
-                "{}",
+                store._canonical(provenance.model_dump(mode="json")),
                 "synthetic-asset-1",
-                "ready_for_analysis",
+                asset.state.value,
+                now,
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO source_intakes (
+                intake_id, asset_id, owner_id, source_reference,
+                acquisition_method, provenance_json, evidence_reference,
+                claimed_source_sha256, source_hash_status,
+                access_permission_state, target_context, rights_use_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, 'unverified', ?, ?, ?, ?)
+            """,
+            (
+                "asset-1-intake",
+                "asset-1",
+                "alice",
+                source_reference,
+                acquisition_method.value,
+                store._canonical(provenance.model_dump(mode="json")),
+                _MEDIA_SHA256,
+                SourceAccessPermissionState.NOT_REQUIRED.value,
+                ContentTargetContext.YOUTUBE_SHORTS.value,
+                store._canonical(rights_use.model_dump(mode="json")),
                 now,
             ),
         )
@@ -158,6 +621,26 @@ def _insert_project_and_asset(store: ContentStore) -> None:
             """,
             ("project-1", "asset-1", 1),
         )
+        if authorize_owner_local and acquisition_method is AcquisitionMethod.OWNER_CREATED:
+            authorized_at = datetime.fromisoformat(now)
+            authorization = OwnerLocalProcessingAuthorization(
+                authorization_id=str(uuid4()),
+                owner_id="alice",
+                asset_id="asset-1",
+                asset_sha256=_MEDIA_SHA256,
+                operations=operations,
+                authorized_at=authorized_at,
+                expires_at=(
+                    authorized_at
+                    + store.OWNER_LOCAL_PROCESSING_AUTHORIZATION_TTL
+                ),
+            )
+            store.create_owner_local_processing_authorization_in_transaction(
+                connection,
+                authorization,
+                actor="alice",
+            )
+    return asset
 
 
 def _request(
@@ -221,7 +704,7 @@ def _result(request: VisualAnalysisRequest) -> VisualVideoAnalysis:
 
 def _crash_worker_after_claim(database: str, analysis_id: str) -> None:
     store = ContentStore(database)
-    worker = VisualAnalysisWorker(store=store)
+    worker = _worker(store)
     worker.start()
     if not worker.claim(analysis_id, "alice"):
         os._exit(2)
@@ -230,8 +713,8 @@ def _crash_worker_after_claim(database: str, analysis_id: str) -> None:
 
 def test_visual_analysis_migration_is_explicit_idempotent_and_v10_only(tmp_path):
     store = ContentStore(tmp_path / "disposable-cre.db")
-    store.migrate_publishing_attempt_schema()
-    _insert_project_and_asset(store)
+    set_legacy_schema_version(store, 9)
+    _insert_project_and_asset(store, authorize_owner_local=False)
 
     with pytest.raises(RuntimeError, match="schema-v10"):
         store.migrate_visual_analysis_schema()
@@ -249,7 +732,7 @@ def test_visual_analysis_is_owner_scoped_idempotent_and_stateful(tmp_path):
     store = _store(tmp_path)
     _insert_project_and_asset(store)
     alice, alice_authority, alice_websocket = _authorized_service(store, "alice")
-    worker = VisualAnalysisWorker(store=store)
+    worker = _worker(store)
     request = _request()
     worker.start()
 
@@ -318,7 +801,7 @@ def test_visual_analysis_is_owner_scoped_idempotent_and_stateful(tmp_path):
         reopened,
         "alice",
     )
-    recovered_worker = VisualAnalysisWorker(store=reopened)
+    recovered_worker = _worker(reopened)
     recovered_worker.start()
     persisted = _get(
         recovered,
@@ -394,7 +877,7 @@ def test_unattested_cache_identity_never_skips_fresh_analysis(tmp_path):
     store = _store(tmp_path)
     _insert_project_and_asset(store)
     service, authority, websocket = _authorized_service(store, "alice")
-    worker = VisualAnalysisWorker(store=store)
+    worker = _worker(store)
     worker.start()
     original_request = _request(idempotency_key="operation-original")
     original, created = _create(service, authority, websocket, original_request)
@@ -491,16 +974,16 @@ def test_visual_analysis_worker_recovery_gates_claims_and_excludes_second_proces
     with pytest.raises(RuntimeError, match="startup recovery"):
         store.claim_visual_analysis(record.analysis_id, "alice")
 
-    worker = VisualAnalysisWorker(store=store)
+    worker = _worker(store)
     worker.start()
     assert worker.claim(record.analysis_id, "alice") is True
-    second_same_store_worker = VisualAnalysisWorker(store=store)
+    second_same_store_worker = _worker(store)
     with pytest.raises(RuntimeError, match="Another visual-analysis worker"):
         second_same_store_worker.start()
 
     second_store = ContentStore(store.database_identity)
     second_store.migrate_visual_analysis_schema()
-    second_worker = VisualAnalysisWorker(store=second_store)
+    second_worker = _worker(second_store)
     with pytest.raises(RuntimeError, match="Another visual-analysis worker"):
         second_worker.start()
     second_store.close()
@@ -524,7 +1007,7 @@ def test_visual_analysis_retention_is_owner_scoped_dry_run_and_reference_safe(
     store = _store(tmp_path)
     _insert_project_and_asset(store)
     service, authority, websocket = _authorized_service(store, "alice")
-    worker = VisualAnalysisWorker(store=store)
+    worker = _worker(store)
     worker.start()
 
     completed_request = _request(idempotency_key="retention-completed")
@@ -650,7 +1133,7 @@ def test_interrupted_visual_analysis_requires_reconciliation_no_retry(tmp_path):
     store = _store(tmp_path)
     _insert_project_and_asset(store)
     service, authority, websocket = _authorized_service(store, "alice")
-    worker = VisualAnalysisWorker(store=store)
+    worker = _worker(store)
     record, _ = _create(
         service,
         authority,
@@ -673,7 +1156,7 @@ def test_interrupted_visual_analysis_requires_reconciliation_no_retry(tmp_path):
         reopened,
         "alice",
     )
-    recovered_worker = VisualAnalysisWorker(store=reopened)
+    recovered_worker = _worker(reopened)
     with pytest.raises(RuntimeError, match="startup recovery"):
         recovered_worker.claim(record.analysis_id, "alice")
     recovered_worker.start()
@@ -705,7 +1188,7 @@ def test_visual_analysis_completion_requires_matching_model_and_timestamps(tmp_p
     store = _store(tmp_path)
     _insert_project_and_asset(store)
     service, authority, websocket = _authorized_service(store, "alice")
-    worker = VisualAnalysisWorker(store=store)
+    worker = _worker(store)
     request = _request()
     worker.start()
     record, _ = _create(service, authority, websocket, request)
@@ -731,7 +1214,7 @@ def test_visual_analysis_failure_is_audited_and_terminal(tmp_path):
     store = _store(tmp_path)
     _insert_project_and_asset(store)
     service, authority, websocket = _authorized_service(store, "alice")
-    worker = VisualAnalysisWorker(store=store)
+    worker = _worker(store)
     record, _ = _create(service, authority, websocket, _request())
     worker.start()
 
@@ -758,7 +1241,7 @@ def test_visual_analysis_claim_is_atomic_and_events_are_append_only(tmp_path):
     store = _store(tmp_path)
     _insert_project_and_asset(store)
     service, authority, websocket = _authorized_service(store, "alice")
-    worker = VisualAnalysisWorker(store=store)
+    worker = _worker(store)
     record, _ = _create(service, authority, websocket, _request())
     worker.start()
     with ThreadPoolExecutor(max_workers=4) as executor:

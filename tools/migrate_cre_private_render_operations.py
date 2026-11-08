@@ -56,7 +56,7 @@ def main() -> int:
     except (OSError, sqlite3.Error, RuntimeError) as exc:
         parser.error(f"Database and backup must be valid content databases: {exc}")
     if database_version not in {
-        ContentStore.SCHEMA_VERSION,
+        ContentStore.LEGACY_BASE_SCHEMA_VERSION,
         8,
         ContentStore.PUBLISHING_ATTEMPT_SCHEMA_VERSION,
         ContentStore.PRIVATE_RENDER_OPERATION_SCHEMA_VERSION,

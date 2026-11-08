@@ -423,6 +423,35 @@ def test_initial_request_binds_hash_metadata_and_explicit_visibility(
     harness.store.close()
 
 
+def test_reconcile_video_recovers_published_progress_after_restart(
+    tmp_path,
+    monkeypatch,
+):
+    harness, job, output, metadata = _job_fixture(
+        tmp_path,
+        monkeypatch,
+        visibility=PublishingVisibility.PUBLIC,
+    )
+    progress = FakeProgressStore()
+    progress.save(
+        job.job_id,
+        YouTubeUploadProgress(
+            state=YouTubeUploadState.PUBLISHED,
+            byte_offset=len(output),
+            total_bytes=len(output),
+            video_id="video-123",
+        ),
+    )
+    transport = FakeTransport(
+        [_settings("public", video_id="video-123", upload_status="processed")]
+    )
+    adapter, _checks = _new_adapter(job, output, metadata, transport, progress)
+
+    assert adapter.reconcile_video(job) == YouTubeUploadState.PUBLISHED
+    assert transport.calls[0][0] == "GET"
+    harness.store.close()
+
+
 def test_missing_secure_store_and_authorization_fail_before_transport(
     tmp_path,
     monkeypatch,

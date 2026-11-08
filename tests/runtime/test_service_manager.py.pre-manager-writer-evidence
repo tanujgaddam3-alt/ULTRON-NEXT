@@ -1,0 +1,2686 @@
+from __future__ import annotations
+
+import hashlib
+import json
+from contextlib import redirect_stdout
+from io import StringIO
+import os
+import signal
+import socket
+import stat
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import textwrap
+import unittest
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
+from unittest.mock import patch
+
+SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
+sys.path.insert(0, str(SCRIPTS))
+
+from ultron_service_manager import (  # noqa: E402
+    Service,
+    ServiceManager,
+    StartupFailure,
+    _probe_voice,
+    request_gateway_control_operation,
+    request_gateway_restart,
+)
+import ultron_service_manager as service_manager_module
+from ultron.application.runtime.system_intelligence import request_helper_restart
+
+PYTHON = sys.executable
+
+
+def free_port() -> int:
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        return listener.getsockname()[1]
+
+
+def operator_writer_attestation(quiesce_operation_id: str) -> dict:
+    return {
+        "quiesceOperationId": quiesce_operation_id,
+        "operator": "cre-maintenance-operator",
+        "attestedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "writerInventory": ["ultron.gateway", "ultron.external.fixture"],
+        "restartSourceInventory": ["ultron.gateway.service", "ultron.writer.timer"],
+        "evidenceReferences": ["maintenance/20261102/writer-snapshot.json"],
+        "allWritersStopped": True,
+        "allRestartSourcesHeld": True,
+        "inventoryCompletenessChecked": True,
+    }
+
+
+def service_command(port: int, marker: str, output: str = "") -> tuple[str, ...]:
+    code = (
+        "import socket,sys,time; "
+        f"print({output!r}, flush=True); "
+        "s=socket.socket(); s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1); "
+        "s.bind(('127.0.0.1',int(sys.argv[1]))); s.listen(); "
+        f"print({marker!r}, flush=True); "
+        "exec('while True:\\n c,a=s.accept()\\n c.close()')"
+    )
+    return (PYTHON, "-u", "-c", code, str(port))
+
+
+def fixture_service(
+    root: Path,
+    name: str,
+    port: int,
+    *,
+    marker: str = "expected-fixture",
+    probe=None,
+    command: tuple[str, ...] | None = None,
+) -> Service:
+    def healthy():
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.2):
+                return f"fixture-ready-{name}"
+        except OSError:
+            return None
+
+    return Service(
+        name=name,
+        host="127.0.0.1",
+        port=port,
+        command=command or service_command(port, marker),
+        cwd=root,
+        probe=probe or healthy,
+        identity=lambda arguments: any(marker in argument for argument in arguments),
+    )
+
+
+class ServiceManagerTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name)
+        self.state = self.root / "state"
+        self.managers = []
+
+    def tearDown(self) -> None:
+        for manager in self.managers:
+            manager.release_manager_lease()
+        self.temporary.cleanup()
+
+    def operator_attest(self, manager, quiesce_id, *, operation_id="writer-attestation"):
+        return manager._attest_gateway_writers(
+            operation_id,
+            operator_writer_attestation(quiesce_id),
+        )
+
+    def write_quiesced_state(self, quiesce_id: str) -> None:
+        self.state.mkdir(mode=0o700, parents=True, exist_ok=True)
+        state = {
+            "version": 1,
+            "services": {},
+            "gatewayQuiesce": {
+                "status": "QUIESCED",
+                "operationId": quiesce_id,
+                "gatewayStatus": "STOPPED",
+                "process": {"pid": 2_000_000_000, "start_ticks": 1},
+                "writersStatus": "NOT_VERIFIED",
+            },
+        }
+        self.state.joinpath("services.json").write_text(json.dumps(state), encoding="utf-8")
+        self.state.joinpath("services.json").chmod(0o600)
+
+    def manager(self, services, *, timeout=2.0, secrets=()):
+        manager = ServiceManager(
+            self.root,
+            state_directory=self.state,
+            services=services,
+            readiness_timeout=timeout,
+            poll_interval=0.05,
+            extra_secrets=secrets,
+            validate_project=False,
+        )
+        self.managers.append(manager)
+        return manager
+
+    def recovery_manager(self, *, port=None, hold_lease=True):
+        gateway = fixture_service(
+            self.root,
+            "gateway",
+            port or free_port(),
+            marker="gateway-quiescence-recovery",
+        )
+        manager = self.manager([gateway])
+        if hold_lease:
+            manager.acquire_manager_lease()
+        return manager
+
+    def test_gateway_lifecycle_rejects_illegal_transitions_and_is_idempotent(self):
+        manager = self.manager([])
+        state = {"version": 1, "services": {}}
+
+        manager._transition_gateway_lifecycle(
+            state, "STARTING", "isolated startup", operation_id="offline-start"
+        )
+        manager._transition_gateway_lifecycle(
+            state, "RUNNING", "isolated readiness verified", operation_id="offline-start"
+        )
+        history_before = list(state["gatewayLifecycle"]["history"])
+        manager._transition_gateway_lifecycle(
+            state, "RUNNING", "repeat observation", operation_id="offline-start"
+        )
+
+        self.assertEqual(state["gatewayLifecycle"]["state"], "RUNNING")
+        self.assertEqual(state["gatewayLifecycle"]["history"], history_before)
+        with self.assertRaisesRegex(StartupFailure, "Illegal gateway lifecycle transition"):
+            manager._transition_gateway_lifecycle(
+                state, "RECOVERING", "recovery without quiescence"
+            )
+
+    def test_gateway_startup_failure_is_persisted_as_failed(self):
+        gateway_port = free_port()
+        gateway = fixture_service(
+            self.root,
+            "gateway",
+            gateway_port,
+            marker="failed-gateway-fixture",
+            command=(PYTHON, "-c", "raise SystemExit(17)"),
+        )
+        manager = self.manager([gateway], timeout=0.5)
+        manager.acquire_manager_lease()
+        try:
+            with self.assertRaises(StartupFailure):
+                manager.start_all()
+            state = json.loads((self.state / "services.json").read_text())
+            self.assertEqual(state["gatewayLifecycle"]["state"], "FAILED")
+            self.assertTrue(state["gatewayLifecycle"]["reason"])
+            self.assertNotIn("gateway", state["services"])
+        finally:
+            manager.release_manager_lease()
+
+    def test_failed_gateway_lifecycle_blocks_automatic_live_start(self):
+        manager = self.recovery_manager()
+        manager._write_state({
+            "version": 1,
+            "services": {},
+            "gatewayLifecycle": {
+                "state": "FAILED",
+                "updatedAt": time.time(),
+                "reason": "previous startup failed",
+                "operationId": "failed-start",
+                "history": [],
+            },
+        })
+        try:
+            with self.assertRaisesRegex(StartupFailure, "manager-controlled recovery"):
+                manager.start_all()
+            self.assertEqual(manager.owned_processes(), {})
+        finally:
+            manager.release_manager_lease()
+
+    def test_gateway_attestation_requires_current_manager_lease(self):
+        self.write_quiesced_state("quiesce-current")
+        manager = self.recovery_manager(hold_lease=False)
+
+        result = self.operator_attest(manager, "quiesce-current")
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["status"], "NOT_MANAGER_OWNED")
+        self.assertEqual(result["managerOwnershipStatus"], "NOT_VERIFIED")
+        state = json.loads((self.state / "services.json").read_text())
+        self.assertNotIn("writerAttestation", state["gatewayQuiesce"])
+
+    def test_gateway_attestation_rejects_original_gateway_identity_still_active(self):
+        self.write_quiesced_state("quiesce-current")
+        manager = self.recovery_manager()
+        proc = service_manager_module._read_proc(os.getpid())
+        self.assertIsNotNone(proc)
+        state = json.loads((self.state / "services.json").read_text())
+        state["gatewayQuiesce"]["process"] = {
+            "pid": os.getpid(),
+            "start_ticks": proc[4],
+        }
+        manager._write_state(state)
+
+        result = self.operator_attest(manager, "quiesce-current")
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["status"], "GATEWAY_PROCESS_ACTIVE")
+        self.assertNotIn(
+            "writerAttestation",
+            json.loads((self.state / "services.json").read_text())["gatewayQuiesce"],
+        )
+
+    def test_gateway_attestation_accepts_reused_pid_only_after_start_tick_mismatch(self):
+        self.write_quiesced_state("quiesce-current")
+        manager = self.recovery_manager()
+        proc = service_manager_module._read_proc(os.getpid())
+        self.assertIsNotNone(proc)
+        state = json.loads((self.state / "services.json").read_text())
+        state["gatewayQuiesce"]["process"] = {
+            "pid": os.getpid(),
+            "start_ticks": proc[4] + 1,
+        }
+        manager._write_state(state)
+
+        result = self.operator_attest(manager, "quiesce-current")
+
+        self.assertTrue(result["success"], result)
+        persisted = json.loads((self.state / "services.json").read_text())
+        self.assertEqual(
+            persisted["gatewayQuiesce"]["gatewayRecoveryEvidence"][
+                "gatewayProcessStatus"
+            ],
+            "ORIGINAL_PROCESS_EXITED_PID_REUSED",
+        )
+
+    def test_gateway_attestation_rejects_listener_conflict(self):
+        self.write_quiesced_state("quiesce-current")
+        manager = self.recovery_manager()
+
+        with patch.object(
+            manager,
+            "_listener_details",
+            return_value=[("127.0.0.1", [os.getpid()])],
+        ):
+            result = self.operator_attest(manager, "quiesce-current")
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["status"], "LISTENER_CONFLICT")
+        state = json.loads((self.state / "services.json").read_text())
+        self.assertNotIn("writerAttestation", state["gatewayQuiesce"])
+
+    def test_resume_rejects_missing_or_changed_recovery_evidence(self):
+        self.write_quiesced_state("quiesce-current")
+        manager = self.recovery_manager()
+        self.assertTrue(self.operator_attest(manager, "quiesce-current")["success"])
+        state = json.loads((self.state / "services.json").read_text())
+        state["gatewayQuiesce"]["gatewayRecoveryEvidence"]["listenerStatus"] = "CONFLICT"
+        manager._write_state(state)
+
+        result = manager._resume_gateway("resume-with-stale-recovery-evidence")
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["status"], "REFUSED_RECOVERY_EVIDENCE")
+        self.assertNotIn("gateway", manager.owned_processes())
+
+    def test_operator_writer_attestation_workflow(self):
+        self.write_quiesced_state("quiesce-current")
+        manager = self.recovery_manager()
+        result = self.operator_attest(manager, "quiesce-current")
+        self.assertTrue(result["success"], result)
+        self.assertEqual(result["status"], "OPERATOR_ATTESTED")
+        self.assertEqual(result["writerAttestationSource"], "OPERATOR")
+        persisted = json.loads((self.state / "services.json").read_text())
+        self.assertEqual(persisted["gatewayQuiesce"]["writersStatus"], "OPERATOR_ATTESTED")
+        self.assertEqual(persisted["gatewayQuiesce"]["writerAttestationSource"], "OPERATOR")
+        self.assertEqual(
+            persisted["gatewayQuiesce"]["gatewayRecoveryEvidence"]["status"],
+            "VERIFIED",
+        )
+        self.assertEqual(
+            persisted["gatewayQuiesce"]["gatewayRecoveryEvidence"]["managerOwnershipStatus"],
+            "HELD_BY_THIS_MANAGER",
+        )
+
+    def test_operator_writer_attestation_rejects_invalid_or_stale_evidence(self):
+        self.write_quiesced_state("quiesce-current")
+        manager = self.recovery_manager()
+        cases = []
+        valid = operator_writer_attestation("quiesce-current")
+        cases.append({})
+        malformed = dict(valid)
+        malformed["evidenceReferences"] = []
+        cases.append(malformed)
+        mismatched = dict(valid)
+        mismatched["quiesceOperationId"] = "quiesce-other"
+        cases.append(mismatched)
+        unconfirmed = dict(valid)
+        unconfirmed["allWritersStopped"] = False
+        cases.append(unconfirmed)
+        stale = dict(valid)
+        stale["attestedAt"] = "2000-01-01T00:00:00Z"
+        cases.append(stale)
+        for index, attestation in enumerate(cases):
+            with self.subTest(index=index):
+                result = manager._attest_gateway_writers(f"invalid-{index}", attestation)
+                self.assertFalse(result["success"])
+                self.assertIn(result["status"], {"INVALID_ATTESTATION_SCHEMA", "STALE_ATTESTATION", "INVALID_ATTESTATION_CONFIRMATION"})
+
+    def test_direct_verified_state_is_not_an_operator_attestation_workflow(self):
+        self.write_quiesced_state("quiesce-current")
+        manager = self.recovery_manager()
+        state = json.loads((self.state / "services.json").read_text())
+        state["gatewayQuiesce"]["writersStatus"] = "VERIFIED"
+        manager._write_state(state)
+        result = manager._resume_gateway("resume-after-direct-edit")
+        self.assertFalse(result["success"])
+        self.assertEqual(result["status"], "REFUSED_WRITER_SAFETY")
+        persisted = json.loads((self.state / "services.json").read_text())
+        self.assertEqual(persisted["gatewayQuiesce"]["writersStatus"], "VERIFIED")
+
+    def test_direct_attestation_fields_without_manager_audit_are_rejected(self):
+        self.write_quiesced_state("quiesce-current")
+        manager = self.recovery_manager()
+        state = json.loads((self.state / "services.json").read_text())
+        state["gatewayQuiesce"].update({
+            "writersStatus": "OPERATOR_ATTESTED",
+            "writerAttestationSource": "OPERATOR",
+            "writerAttestation": operator_writer_attestation("quiesce-current"),
+            "gatewayRecoveryEvidence": {
+                "status": "VERIFIED",
+                "quiesceOperationId": "quiesce-current",
+                "attestationOperationId": "direct-edit",
+                "managerOwnershipStatus": "HELD_BY_THIS_MANAGER",
+                "gatewayProcessStatus": "ORIGINAL_PROCESS_EXITED",
+                "listenerStatus": "NOT_LISTENING",
+            },
+        })
+        manager._write_state(state)
+
+        result = manager._resume_gateway("resume-without-attestation-audit")
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["status"], "REFUSED_WRITER_SAFETY")
+        self.assertNotIn("gateway", manager.owned_processes())
+
+    def test_resume_replay_preserves_operator_attestation_provenance(self):
+        self.write_quiesced_state("quiesce-current")
+        manager = self.recovery_manager()
+        attestation = operator_writer_attestation("quiesce-current")
+        self.assertTrue(manager._attest_gateway_writers("attestation-replay", attestation)["success"])
+        fingerprint = hashlib.sha256(
+            json.dumps(attestation, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        state = json.loads((self.state / "services.json").read_text())
+        state["gatewayQuiesce"]["resumeOperationId"] = "resume-replay"
+        state["controlOperations"] = {
+            "resume-replay": {
+                "operation": "resume-gateway",
+                "status": "SUCCEEDED",
+                "quiesceOperationId": "quiesce-current",
+                "writerAttestationFingerprint": fingerprint,
+                "writersStatus": "OPERATOR_ATTESTED",
+                "writerAttestationSource": "OPERATOR",
+                "events": [{"detail": "Gateway resumed and verified."}],
+            }
+        }
+        manager._write_state(state)
+
+        replay = manager._resume_gateway("resume-replay")
+
+        self.assertTrue(replay["success"])
+        self.assertEqual(replay["writersStatus"], "OPERATOR_ATTESTED")
+        self.assertEqual(replay["writerAttestationSource"], "OPERATOR")
+
+        state = json.loads((self.state / "services.json").read_text())
+        changed = dict(state["gatewayQuiesce"]["writerAttestation"])
+        changed["operator"] = "different-operator"
+        state["gatewayQuiesce"]["writerAttestation"] = changed
+        manager._write_state(state)
+        replay = manager._resume_gateway("resume-replay")
+        self.assertFalse(replay["success"])
+        self.assertEqual(replay["status"], "STALE_CONTROL_PROVENANCE")
+
+    def test_attestation_replay_rejects_changed_evidence(self):
+        self.write_quiesced_state("quiesce-current")
+        manager = self.recovery_manager()
+        attestation = operator_writer_attestation("quiesce-current")
+        self.assertTrue(manager._attest_gateway_writers("attestation-replay", attestation)["success"])
+        changed = dict(attestation)
+        changed["operator"] = "different operator"
+        replay = manager._attest_gateway_writers("attestation-replay", changed)
+        self.assertFalse(replay["success"])
+        self.assertEqual(replay["status"], "STALE_ATTESTATION")
+
+    def test_attestation_invalidates_when_quiesce_operation_changes(self):
+        self.write_quiesced_state("quiesce-current")
+        manager = self.recovery_manager()
+        self.assertTrue(self.operator_attest(manager, "quiesce-current")["success"])
+        state = json.loads((self.state / "services.json").read_text())
+        state["gatewayQuiesce"]["operationId"] = "quiesce-new"
+        manager._write_state(state)
+        result = manager._resume_gateway("resume-after-quiesce-change")
+        self.assertFalse(result["success"])
+        self.assertEqual(result["status"], "REFUSED_WRITER_SAFETY")
+
+    def test_control_channel_startup_failure_rolls_back_only_started_children(self):
+        external_port = free_port()
+        external = fixture_service(
+            self.root, "external", external_port, marker="external-control-fixture"
+        )
+        external_process = subprocess.Popen(
+            external.command,
+            cwd=self.root,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        try:
+            deadline = time.monotonic() + 2
+            while external.probe() is None and time.monotonic() < deadline:
+                time.sleep(0.02)
+            for count in (1, 3):
+                with self.subTest(started_services=count):
+                    services = [
+                        fixture_service(
+                            self.root,
+                            f"service-{index}",
+                            free_port(),
+                            marker=f"control-fixture-{index}",
+                        )
+                        for index in range(count)
+                    ]
+                    state = self.state / str(count)
+                    manager = ServiceManager(
+                        self.root,
+                        state_directory=state,
+                        services=services,
+                        readiness_timeout=2,
+                        poll_interval=0.02,
+                        validate_project=False,
+                    )
+                    manager.acquire_manager_lease()
+                    try:
+                        with patch.object(
+                            manager,
+                            "start_control_channel",
+                            side_effect=StartupFailure(
+                                "manager", "injected control socket failure", {}
+                            ),
+                        ):
+                            with self.assertRaisesRegex(
+                                StartupFailure, "injected control socket failure"
+                            ) as raised:
+                                manager.start_with_control_channel()
+                        self.assertIn("All manager-started services were stopped", str(raised.exception))
+                        state_record = json.loads(
+                            (state / "services.json").read_text()
+                        )
+                        self.assertEqual(state_record["services"], {})
+                        recovery = state_record["startupRecovery"]
+                        self.assertEqual(recovery["status"], "ROLLED_BACK")
+                        self.assertEqual(
+                            recovery["failureReason"], "injected control socket failure"
+                        )
+                        self.assertEqual(
+                            list(recovery["outcomes"]),
+                            [service.name for service in reversed(services)],
+                        )
+                        self.assertEqual(manager.owned_processes(), {})
+                        self.assertIsNone(external_process.poll())
+
+                        competitor = ServiceManager(
+                            self.root,
+                            state_directory=state,
+                            services=services,
+                            validate_project=False,
+                        )
+                        with self.assertRaisesRegex(
+                            StartupFailure, "Another service manager"
+                        ):
+                            competitor.acquire_manager_lease()
+                        manager.release_manager_lease()
+                        competitor.acquire_manager_lease()
+                        competitor.release_manager_lease()
+                    finally:
+                        manager.close_control_channel()
+                        manager.release_manager_lease()
+        finally:
+            external_process.terminate()
+            external_process.wait(timeout=3)
+
+    def test_control_channel_success_opens_socket_after_services_are_ready(self):
+        port = free_port()
+        service = fixture_service(self.root, "fixture", port)
+        manager = self.manager([service])
+        manager.acquire_manager_lease()
+        try:
+            statuses = manager.start_with_control_channel()
+            self.assertIn("started and ready", statuses["fixture"])
+            self.assertTrue(manager.control_socket_path.is_socket())
+            self.assertTrue(manager._process_matches(
+                service, manager.owned_processes()["fixture"], managed=True
+            ))
+            manager.stop_managed()
+            self.assertEqual(
+                json.loads((self.state / "services.json").read_text())["services"],
+                {},
+            )
+        finally:
+            manager.close_control_channel()
+            manager.release_manager_lease()
+
+    def test_control_channel_failure_before_any_service_starts_preserves_startup_error(self):
+        port = free_port()
+        failed = fixture_service(
+            self.root,
+            "failed",
+            port,
+            command=(
+                PYTHON,
+                "-c",
+                "import time,sys; print(sys.argv[1]); time.sleep(.1); raise SystemExit(9)",
+                "expected-fixture",
+            ),
+        )
+        manager = self.manager([failed])
+        manager.acquire_manager_lease()
+        control_start = patch.object(manager, "start_control_channel")
+        try:
+            with control_start as start_channel:
+                with self.assertRaisesRegex(StartupFailure, "exited with status 9"):
+                    manager.start_with_control_channel()
+                start_channel.assert_not_called()
+            persisted = json.loads((self.state / "services.json").read_text())
+            self.assertEqual(persisted["services"], {})
+            self.assertEqual(manager.owned_processes(), {})
+        finally:
+            manager.release_manager_lease()
+
+    def test_control_rollback_never_signals_ambiguous_child_and_blocks_next_owner(self):
+        port = free_port()
+        service = fixture_service(self.root, "fixture", port)
+        manager = self.manager([service])
+        manager.acquire_manager_lease()
+        child_pid = None
+        try:
+            real_stop = manager._stop_record
+
+            def reject_identity(candidate, record):
+                with patch.object(manager, "_process_matches", return_value=False):
+                    return real_stop(candidate, record)
+
+            with patch.object(
+                manager,
+                "start_control_channel",
+                side_effect=StartupFailure("manager", "injected socket failure", {}),
+            ), patch.object(manager, "_stop_record", side_effect=reject_identity):
+                with self.assertRaisesRegex(
+                    StartupFailure, "OPERATOR_INTERVENTION_REQUIRED"
+                ) as raised:
+                    manager.start_with_control_channel()
+            child_pid = manager.owned_processes()["fixture"]
+            child = manager._processes["fixture"]
+            self.assertIsNone(child.poll())
+            self.assertIn("injected socket failure", str(raised.exception))
+            persisted = json.loads((self.state / "services.json").read_text())
+            self.assertEqual(
+                persisted["startupRecovery"]["status"],
+                "OPERATOR_INTERVENTION_REQUIRED",
+            )
+            self.assertEqual(persisted["services"]["fixture"]["pid"], child_pid)
+
+            manager.release_manager_lease()
+            competitor = self.manager([service])
+            with self.assertRaisesRegex(
+                StartupFailure, "operator intervention"
+            ):
+                competitor.acquire_manager_lease()
+            child.terminate()
+            child.wait(timeout=3)
+        finally:
+            if manager._manager_lease_descriptor is not None:
+                manager.release_manager_lease()
+
+    def test_control_rollback_clears_record_when_child_exits_during_cleanup(self):
+        port = free_port()
+        service = fixture_service(self.root, "fixture", port)
+        manager = self.manager([service])
+        manager.acquire_manager_lease()
+        try:
+            real_stop = manager._stop_record
+
+            def exit_child_before_identity_check(candidate, record):
+                child = manager._processes[candidate.name]
+                child.terminate()
+                child.wait(timeout=2)
+                return real_stop(candidate, record)
+
+            with patch.object(
+                manager,
+                "start_control_channel",
+                side_effect=StartupFailure("manager", "original control failure", {}),
+            ), patch.object(
+                manager, "_stop_record", side_effect=exit_child_before_identity_check
+            ):
+                with self.assertRaisesRegex(
+                    StartupFailure, "All manager-started services were stopped"
+                ):
+                    manager.start_with_control_channel()
+            persisted = json.loads((self.state / "services.json").read_text())
+            self.assertEqual(persisted["services"], {})
+            self.assertEqual(persisted["startupRecovery"]["status"], "ROLLED_BACK")
+            self.assertEqual(manager.owned_processes(), {})
+        finally:
+            manager.release_manager_lease()
+
+    def test_control_rollback_records_bounded_shutdown_failure_and_state_write_failure(self):
+        for failure_kind in ("shutdown", "state-write"):
+            with self.subTest(failure_kind=failure_kind):
+                port = free_port()
+                marker = f"control-{failure_kind}"
+                command = None
+                if failure_kind == "shutdown":
+                    command = (
+                        PYTHON,
+                        "-u",
+                        "-c",
+                        "import signal,socket,sys,time; "
+                        "signal.signal(signal.SIGINT, signal.SIG_IGN); "
+                        "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+                        "s=socket.socket(); s.bind(('127.0.0.1',int(sys.argv[1]))); "
+                        "s.listen(); print(sys.argv[2],flush=True); time.sleep(60)",
+                        str(port),
+                        marker,
+                    )
+                service = fixture_service(
+                    self.root,
+                    "fixture",
+                    port,
+                    marker=marker,
+                    command=command,
+                )
+                state = self.state / failure_kind
+                manager = ServiceManager(
+                    self.root,
+                    state_directory=state,
+                    services=[service],
+                    readiness_timeout=2,
+                    poll_interval=0.02,
+                    validate_project=False,
+                )
+                manager.acquire_manager_lease()
+                child = None
+                try:
+                    real_write = manager._write_state
+                    real_stop = manager._stop_record
+                    writes_during_rollback = 0
+                    rollback_started = False
+
+                    def fail_first_rollback_write(state_value):
+                        nonlocal writes_during_rollback, rollback_started
+                        if not rollback_started:
+                            return real_write(state_value)
+                        writes_during_rollback += 1
+                        if failure_kind == "state-write" and writes_during_rollback == 1:
+                            raise OSError("injected state persistence failure")
+                        return real_write(state_value)
+
+                    def fail_control_channel():
+                        nonlocal rollback_started
+                        rollback_started = True
+                        raise StartupFailure("manager", "original socket error", {})
+
+                    def fail_shutdown(candidate, record):
+                        child_process = manager._processes[candidate.name]
+                        child_process.terminate()
+                        child_process.wait(timeout=2)
+                        return real_stop(candidate, record)
+
+                    with patch.object(
+                        manager,
+                        "start_control_channel",
+                        side_effect=fail_control_channel,
+                    ):
+                        if failure_kind == "shutdown":
+                            real_kill = service_manager_module.os.kill
+
+                            def suppress_kill(pid, requested_signal):
+                                managed = manager._processes.get("fixture")
+                                if (
+                                    managed is not None
+                                    and pid == managed.pid
+                                    and requested_signal == signal.SIGKILL
+                                ):
+                                    return None
+                                return real_kill(pid, requested_signal)
+
+                            with patch.object(
+                                service_manager_module,
+                                "SERVICE_SHUTDOWN_STEPS",
+                                ((signal.SIGINT, 0.05), (signal.SIGTERM, 0.05)),
+                            ), patch.object(
+                                service_manager_module,
+                                "SERVICE_KILL_WAIT",
+                                0.05,
+                            ), patch.object(
+                                service_manager_module.os,
+                                "kill",
+                                side_effect=suppress_kill,
+                            ):
+                                start_time = time.monotonic()
+                                with self.assertRaisesRegex(
+                                    StartupFailure, "original socket error"
+                                ) as raised:
+                                    manager.start_with_control_channel()
+                                self.assertLess(time.monotonic() - start_time, 1)
+                        else:
+                            with patch.object(
+                                manager, "_stop_record", side_effect=fail_shutdown
+                            ), patch.object(
+                                manager, "_write_state", side_effect=fail_first_rollback_write
+                            ):
+                                with self.assertRaisesRegex(
+                                    StartupFailure, "original socket error"
+                                ) as raised:
+                                    manager.start_with_control_channel()
+                    state_value = json.loads((state / "services.json").read_text())
+                    self.assertEqual(
+                        state_value["startupRecovery"]["status"],
+                        "OPERATOR_INTERVENTION_REQUIRED",
+                    )
+                    self.assertEqual(
+                        state_value["startupRecovery"]["failureReason"],
+                        "original socket error",
+                    )
+                    self.assertIn(
+                        "OPERATOR_INTERVENTION_REQUIRED", str(raised.exception)
+                    )
+                    child = manager._processes.get("fixture")
+                    if failure_kind == "shutdown":
+                        self.assertIsNotNone(child)
+                        self.assertIsNone(child.poll())
+                        self.assertEqual(len(state_value["services"]), 1)
+                    else:
+                        self.assertIsNotNone(child)
+                        self.assertIsNotNone(child.poll())
+                        self.assertEqual(len(state_value["services"]), 1)
+                        self.assertEqual(
+                            state_value["startupRecovery"]["statePersistenceError"],
+                            "OSError",
+                        )
+                finally:
+                    if child is not None and child.poll() is None:
+                        child.kill()
+                        child.wait(timeout=3)
+                    manager.release_manager_lease()
+
+    def test_manager_lease_release_failure_keeps_exclusive_lock_until_retried(self):
+        manager = self.manager([])
+        competitor = self.manager([])
+        manager.acquire_manager_lease()
+        descriptor = manager._manager_lease_descriptor
+        real_flock = service_manager_module.fcntl.flock
+
+        def fail_unlock(fd, operation):
+            if fd == descriptor and operation == service_manager_module.fcntl.LOCK_UN:
+                raise OSError("injected lease release failure")
+            return real_flock(fd, operation)
+
+        try:
+            with patch.object(service_manager_module.fcntl, "flock", side_effect=fail_unlock):
+                with self.assertRaisesRegex(OSError, "injected lease release failure"):
+                    manager.release_manager_lease()
+            with self.assertRaisesRegex(StartupFailure, "Another service manager"):
+                competitor.acquire_manager_lease()
+            manager.release_manager_lease()
+            competitor.acquire_manager_lease()
+            competitor.release_manager_lease()
+        finally:
+            manager.release_manager_lease()
+            competitor.release_manager_lease()
+
+    def test_legacy_manager_without_lease_or_socket_blocks_new_owner(self):
+        manager = self.manager([])
+        script_path = str(
+            (self.root / "scripts/ultron_service_manager.py").resolve()
+        )
+        legacy = subprocess.Popen(
+            [
+                PYTHON,
+                "-c",
+                "import time; time.sleep(30)",
+                script_path,
+                "start",
+            ],
+            cwd=self.root,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        try:
+            self.assertFalse(manager.manager_lease_path.exists())
+            self.assertFalse(manager.control_socket_path.exists())
+            with self.assertRaisesRegex(
+                StartupFailure,
+                "legacy service manager is already supervising",
+            ):
+                manager.acquire_manager_lease()
+            self.assertIsNone(manager._manager_lease_descriptor)
+            self.assertFalse(manager.control_socket_path.exists())
+        finally:
+            legacy.terminate()
+            legacy.wait(timeout=3)
+
+    def test_clean_startup_and_shutdown_only_stops_managed_process(self):
+        port = free_port()
+        manager = self.manager([fixture_service(self.root, "fixture", port)])
+
+        status = manager.start_all()
+        pid = manager.owned_processes()["fixture"]
+        self.assertIn("started and ready", status["fixture"])
+        self.assertTrue(manager._process_matches(manager.services[0], pid, managed=True))
+        log_path = self.state / "logs/fixture.log"
+        self.assertEqual(log_path.stat().st_mode & 0o777, 0o600)
+
+        stopped = manager.stop_managed()
+        self.assertIn("stopped launcher-managed", stopped["fixture"])
+        self.assertFalse(manager._process_matches(manager.services[0], pid, managed=True))
+
+    def test_existing_healthy_service_is_reused_and_never_stopped(self):
+        port = free_port()
+        service = fixture_service(self.root, "fixture", port)
+        process = subprocess.Popen(
+            service.command,
+            cwd=self.root,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        try:
+            deadline = time.monotonic() + 2
+            while service.probe() is None and time.monotonic() < deadline:
+                time.sleep(0.02)
+            manager = self.manager([service])
+            status = manager.start_all()
+
+            self.assertIn("reused healthy pre-existing", status["fixture"])
+            self.assertEqual(manager.owned_processes(), {})
+            manager.stop_managed()
+            self.assertIsNone(process.poll())
+        finally:
+            process.terminate()
+            process.wait(timeout=2)
+
+    def test_repeated_startup_reuses_owned_services_without_duplicate_processes(self):
+        service = fixture_service(self.root, "auth", free_port(), marker="auth-repeat")
+        manager = self.manager([service])
+
+        with patch.object(manager, "_environment_for", return_value=os.environ.copy()):
+            first_status = manager.start_all()
+            original_pid = manager.owned_processes()["auth"]
+            second_status = manager.start_all()
+
+        self.assertIn("started and ready", first_status["auth"])
+        self.assertIn("managed and healthy", second_status["auth"])
+        self.assertEqual(manager.owned_processes(), {"auth": original_pid})
+        self.assertEqual(len(manager._processes), 1)
+        manager.stop_managed()
+
+    def test_unrelated_listener_is_reported_and_preserved(self):
+        port = free_port()
+        unrelated = fixture_service(
+            self.root, "unrelated", port, marker="unrelated-fixture"
+        )
+        process = subprocess.Popen(
+            unrelated.command,
+            cwd=self.root,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        try:
+            deadline = time.monotonic() + 2
+            while unrelated.probe() is None and time.monotonic() < deadline:
+                time.sleep(0.02)
+            manager = self.manager(
+                [fixture_service(self.root, "expected", port)]
+            )
+            with self.assertRaisesRegex(StartupFailure, "cannot be verified"):
+                manager.start_all()
+            self.assertIsNone(process.poll())
+        finally:
+            process.terminate()
+            process.wait(timeout=2)
+
+    def test_failed_process_startup_is_reported_without_state_record(self):
+        port = free_port()
+        failed = fixture_service(
+            self.root,
+            "failed",
+            port,
+            command=(
+                PYTHON,
+                "-c",
+                "print('expected-fixture'); import sys; print('fixture startup failure'); sys.exit(7)",
+            ),
+        )
+        manager = self.manager([failed])
+
+        with self.assertRaisesRegex(StartupFailure, "exited with status 7"):
+            manager.start_all()
+        state = json.loads((self.state / "services.json").read_text())
+        self.assertNotIn("failed", state["services"])
+
+    def test_readiness_timeout_cleans_up_the_process(self):
+        port = free_port()
+        service = fixture_service(
+            self.root, "timeout", port, probe=lambda: None
+        )
+        manager = self.manager([service], timeout=0.25)
+
+        with self.assertRaisesRegex(StartupFailure, "Readiness timed out"):
+            manager.start_all()
+        self.assertEqual(manager.owned_processes(), {})
+        self.assertNotIn("timeout", manager._processes)
+        state = json.loads((self.state / "services.json").read_text())
+        self.assertNotIn("timeout", state["services"])
+
+    def test_voice_health_http_200_with_ready_false_is_not_ready(self):
+        health = {"ready": False, "engine": "edge", "is_clone": False}
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                payload = json.dumps(health).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+            def log_message(self, *_args):
+                return
+
+        server = HTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            service = fixture_service(
+                self.root,
+                "voice",
+                free_port(),
+                probe=lambda: _probe_voice(server.server_port),
+            )
+            manager = self.manager([service], timeout=0.2)
+            with self.assertRaisesRegex(StartupFailure, "Readiness timed out"):
+                manager.start_all()
+
+            health["ready"] = True
+            self.assertEqual(
+                _probe_voice(server.server_port),
+                "engine=edge is_clone=false",
+            )
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=1)
+
+    def test_voice_initialization_process_failure_is_not_reported_ready(self):
+        port = free_port()
+        voice = fixture_service(
+            self.root,
+            "voice",
+            port,
+            marker="ultron.voice.server",
+            command=(
+                PYTHON,
+                "-u",
+                "-c",
+                "import time; print('ultron.voice.server', flush=True); "
+                "time.sleep(.2); raise RuntimeError('voice engine initialization failed')",
+            ),
+        )
+        manager = self.manager([voice])
+
+        with self.assertRaisesRegex(StartupFailure, "exited with status"):
+            manager.start_all()
+        log = (self.state / "logs/voice.log").read_text()
+        self.assertIn("voice engine initialization failed", log)
+        state = json.loads((self.state / "services.json").read_text())
+        self.assertNotIn("voice", state["services"])
+
+    def test_production_voice_command_prepares_explicit_edge_engine(self):
+        voice = next(
+            service for service in ServiceManager(self.root, validate_project=False).services
+            if service.name == "voice"
+        )
+        self.assertIn("--engine", voice.command)
+        self.assertEqual(voice.command[voice.command.index("--engine") + 1], "edge")
+        self.assertNotIn("--no-preload", voice.command)
+
+    def test_ctrl_c_during_readiness_stops_the_current_startup_process(self):
+        port = free_port()
+
+        def interrupt_readiness(_service):
+            raise KeyboardInterrupt
+
+        service = fixture_service(self.root, "interrupted", port)
+        manager = self.manager([service], timeout=2)
+        manager._probe = interrupt_readiness
+
+        with self.assertRaises(KeyboardInterrupt):
+            manager.start_all()
+        self.assertNotIn("interrupted", manager._processes)
+        self.assertIsNone(service.probe())
+        state = json.loads((self.state / "services.json").read_text())
+        self.assertNotIn("interrupted", state["services"])
+
+    def test_partial_startup_rolls_back_only_services_started_in_this_run(self):
+        first_port = free_port()
+        conflict_port = free_port()
+        preexisting = fixture_service(
+            self.root, "preexisting", conflict_port, marker="unrelated-fixture"
+        )
+        conflict_process = subprocess.Popen(
+            preexisting.command,
+            cwd=self.root,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        try:
+            deadline = time.monotonic() + 2
+            while preexisting.probe() is None and time.monotonic() < deadline:
+                time.sleep(0.02)
+            manager = self.manager([
+                fixture_service(self.root, "started-first", first_port),
+                fixture_service(self.root, "blocked-second", conflict_port),
+            ])
+            with self.assertRaises(StartupFailure):
+                manager.start_all()
+
+            self.assertNotIn("started-first", manager._processes)
+            self.assertIsNone(manager.services[0].probe())
+            self.assertIsNone(conflict_process.poll())
+        finally:
+            conflict_process.terminate()
+            conflict_process.wait(timeout=2)
+
+    def test_separate_manager_refuses_to_adopt_recorded_process_without_transfer(self):
+        port = free_port()
+        service = fixture_service(self.root, "fixture", port)
+        first = self.manager([service])
+        first.start_all()
+        original_pid = first.owned_processes()["fixture"]
+        try:
+            original_record = json.loads(
+                (self.state / "services.json").read_text()
+            )["services"]["fixture"]
+            self.assertFalse(first.manager_lease_path.exists())
+            self.assertFalse(first.control_socket_path.exists())
+            self.assertIsNone(first._processes["fixture"].poll())
+            second = self.manager([service])
+            try:
+                second.acquire_manager_lease()
+                self.assertTrue(second.manager_lease_path.is_file())
+                self.assertFalse(second.control_socket_path.exists())
+                with self.assertRaisesRegex(
+                    StartupFailure,
+                    "adoption requires a validated ownership transfer",
+                ):
+                    second.start_all()
+                self.assertEqual(second.owned_processes(), {})
+                state = json.loads((self.state / "services.json").read_text())
+                self.assertEqual(state["services"]["fixture"], original_record)
+                self.assertEqual(first.owned_processes()["fixture"], original_pid)
+                self.assertIsNone(first._processes["fixture"].poll())
+            finally:
+                second.release_manager_lease()
+        finally:
+            first.stop_managed()
+
+    def test_stale_pid_record_is_removed_without_signalling_pid(self):
+        self.state.mkdir(mode=0o700)
+        state_path = self.state / "services.json"
+        state_path.write_text(json.dumps({
+            "version": 1,
+            "services": {"fixture": {"pid": 99999999, "start_ticks": 1, "log": "unused"}},
+        }))
+        state_path.chmod(0o600)
+        port = free_port()
+        manager = self.manager([fixture_service(self.root, "fixture", port)])
+
+        manager.start_all()
+        self.assertIn("fixture", manager.owned_processes())
+        manager.stop_managed()
+
+    def test_secret_values_are_redacted_from_separate_service_logs(self):
+        port = free_port()
+        secret = "fixture-secret-value"
+        service = fixture_service(
+            self.root,
+            "redaction",
+            port,
+            command=service_command(port, "expected-fixture", secret),
+        )
+        manager = self.manager([service], secrets=(secret,))
+        manager.start_all()
+        log_path = self.state / "logs/redaction.log"
+        deadline = time.monotonic() + 1
+        while b"[redacted]" not in log_path.read_bytes() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        log_content = log_path.read_bytes()
+        self.assertNotIn(secret.encode(), log_content)
+        self.assertIn(b"[redacted]", log_content)
+        manager.stop_managed()
+
+    def test_voice_health_reports_engine_and_clone_flag_from_response(self):
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                payload = json.dumps({
+                    "status": "ready",
+                    "ready": True,
+                    "engine": "edge",
+                    "is_clone": False,
+                }).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+            def log_message(self, *_args):
+                return
+
+        server = HTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            self.assertEqual(
+                _probe_voice(server.server_port),
+                "engine=edge is_clone=false",
+            )
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=1)
+
+    def test_non_gateway_processes_do_not_inherit_gateway_credentials(self):
+        service = fixture_service(self.root, "fixture", free_port())
+        manager = self.manager([service])
+        with patch.dict(
+            os.environ,
+            {
+                "ULTRON_INTERFACE_AUTH_TOKEN": "launcher-test-token",
+                "OMEGA_INTEGRATION_TOKEN": "launcher-test-omega-token",
+                "ULTRON_CRE_FASTER_WHISPER_MODEL": "/local/model",
+                "ULTRON_CRE_DATABASE": "/private/cre-v10-copy.sqlite",
+                "ULTRON_INTERFACE_CRE_REVIEWER_PRINCIPAL": "rights-reviewer",
+                "ULTRON_INTERFACE_CRE_REVIEWER_TOKEN": "R" * 43,
+            },
+        ):
+            environment = manager._environment_for(service)
+        self.assertNotIn("ULTRON_INTERFACE_AUTH_TOKEN", environment)
+        self.assertNotIn("OMEGA_INTEGRATION_TOKEN", environment)
+        self.assertNotIn("ULTRON_CRE_FASTER_WHISPER_MODEL", environment)
+        self.assertNotIn("ULTRON_CRE_DATABASE", environment)
+        self.assertNotIn("ULTRON_INTERFACE_CRE_REVIEWER_PRINCIPAL", environment)
+        self.assertNotIn("ULTRON_INTERFACE_CRE_REVIEWER_TOKEN", environment)
+
+    def test_gateway_defaults_to_simulation_without_overriding_explicit_backend(self):
+        gateway = Service(
+            "gateway",
+            "127.0.0.1",
+            free_port(),
+            ("gateway-fixture",),
+            self.root,
+            lambda: None,
+            lambda _arguments: False,
+        )
+        manager = self.manager([gateway])
+        with patch.object(manager, "_load_gateway_token", return_value="test-token"):
+            with patch.dict(os.environ, {}, clear=True):
+                environment = manager._environment_for(gateway)
+                self.assertEqual(
+                    environment["ULTRON_EXECUTION_BACKEND"],
+                    "simulation",
+                )
+            with patch.dict(
+                os.environ,
+                {"ULTRON_EXECUTION_BACKEND": "paper"},
+                clear=True,
+            ):
+                environment = manager._environment_for(gateway)
+                self.assertEqual(environment["ULTRON_EXECUTION_BACKEND"], "paper")
+
+    def test_gateway_inherits_explicit_cre_database_path(self):
+        gateway = Service(
+            "gateway",
+            "127.0.0.1",
+            free_port(),
+            ("gateway-fixture",),
+            self.root,
+            lambda: None,
+            lambda _arguments: False,
+        )
+        manager = self.manager([gateway])
+        with patch.object(manager, "_load_gateway_token", return_value="test-token"):
+            with patch.dict(
+                os.environ,
+                {"ULTRON_CRE_DATABASE": "/private/cre-v10-copy.sqlite"},
+                clear=True,
+            ):
+                environment = manager._environment_for(gateway)
+
+        self.assertEqual(
+            environment["ULTRON_CRE_DATABASE"],
+            "/private/cre-v10-copy.sqlite",
+        )
+
+    def test_gateway_loads_owner_only_cre_runtime_config_and_redacts_reviewer_token(self):
+        config_directory = self.root / ".config" / "ultron"
+        config_directory.mkdir(parents=True, mode=0o700)
+        config_path = config_directory / "cre-runtime.json"
+        reviewer_token = "R" * 43
+        config_path.write_text(
+            json.dumps(
+                {
+                    "ULTRON_CRE_FASTER_WHISPER_MODEL": "/local/model",
+                    "ULTRON_INTERFACE_CRE_REVIEWER_PRINCIPAL": "rights-reviewer",
+                    "ULTRON_INTERFACE_CRE_REVIEWER_TOKEN": reviewer_token,
+                }
+            ),
+            encoding="utf-8",
+        )
+        config_path.chmod(0o600)
+        gateway = Service(
+            "gateway",
+            "127.0.0.1",
+            free_port(),
+            ("gateway-fixture",),
+            self.root,
+            lambda: None,
+            lambda _arguments: False,
+        )
+        manager = self.manager([gateway])
+        with patch("pathlib.Path.home", return_value=self.root):
+            with patch.object(manager, "_load_gateway_token", return_value="G" * 43):
+                environment = manager._environment_for(gateway)
+            with patch.dict(
+                os.environ,
+                {"ULTRON_CRE_FASTER_WHISPER_MODEL": "/environment/model"},
+            ):
+                with patch.object(manager, "_load_gateway_token", return_value="G" * 43):
+                    environment_override = manager._environment_for(gateway)
+
+        self.assertEqual(
+            environment["ULTRON_CRE_FASTER_WHISPER_MODEL"],
+            "/local/model",
+        )
+        self.assertEqual(
+            environment_override["ULTRON_CRE_FASTER_WHISPER_MODEL"],
+            "/environment/model",
+        )
+        self.assertEqual(
+            environment["ULTRON_INTERFACE_CRE_REVIEWER_PRINCIPAL"],
+            "rights-reviewer",
+        )
+        self.assertEqual(
+            environment["ULTRON_INTERFACE_CRE_REVIEWER_TOKEN"],
+            reviewer_token,
+        )
+        self.assertNotIn(
+            reviewer_token,
+            manager._sanitize_log(f"reviewer token={reviewer_token}".encode()).decode(),
+        )
+
+    def test_gateway_rejects_insecure_or_incomplete_cre_runtime_config(self):
+        config_directory = self.root / ".config" / "ultron"
+        config_directory.mkdir(parents=True, mode=0o700)
+        config_path = config_directory / "cre-runtime.json"
+        config_path.write_text(
+            json.dumps({"ULTRON_INTERFACE_CRE_REVIEWER_TOKEN": "R" * 43}),
+            encoding="utf-8",
+        )
+        config_path.chmod(0o600)
+        gateway = Service(
+            "gateway",
+            "127.0.0.1",
+            free_port(),
+            ("gateway-fixture",),
+            self.root,
+            lambda: None,
+            lambda _arguments: False,
+        )
+        manager = self.manager([gateway])
+        with patch("pathlib.Path.home", return_value=self.root):
+            with self.assertRaises(StartupFailure):
+                manager._load_cre_runtime_config()
+
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "ULTRON_INTERFACE_CRE_REVIEWER_PRINCIPAL": "rights-reviewer",
+                        "ULTRON_INTERFACE_CRE_REVIEWER_TOKEN": "R" * 43,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            config_path.chmod(0o644)
+            with self.assertRaises(StartupFailure):
+                manager._load_cre_runtime_config()
+
+    def test_launcher_sigint_gracefully_stops_only_its_child(self):
+        port = free_port()
+        service = fixture_service(self.root, "fixture", port)
+        state_directory = self.root / "signal-state"
+        runner = textwrap.dedent(
+            f"""
+            import socket
+            import sys
+            from pathlib import Path
+            sys.path.insert(0, {str(SCRIPTS)!r})
+            from ultron_service_manager import (
+                Service, ServiceManager, _configure_manager_signal_policy,
+            )
+            _configure_manager_signal_policy()
+            root = Path({str(self.root)!r})
+            state_directory = Path({str(state_directory)!r})
+            port = {port}
+            command = {list(service.command)!r}
+            def probe():
+                with socket.create_connection(('127.0.0.1', port), timeout=.2):
+                    pass
+                return 'ready'
+            identity = lambda args: any('expected-fixture' in arg for arg in args)
+            item = Service('fixture', '127.0.0.1', port, tuple(command), root, probe, identity)
+            manager = ServiceManager(
+                root, state_directory=state_directory, services=[item],
+                readiness_timeout=2, poll_interval=.05, validate_project=False,
+            )
+            manager.start_all()
+            print('READY', flush=True)
+            raise SystemExit(manager.supervise())
+            """
+        )
+        process = subprocess.Popen(
+            (PYTHON, "-u", "-c", runner),
+            cwd=self.root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            start_new_session=True,
+        )
+        try:
+            self.assertEqual(process.stdout.readline().strip(), "READY")
+            process.send_signal(signal.SIGHUP)
+            time.sleep(0.1)
+            self.assertIsNone(process.poll(), "terminal hangup stopped the supervisor")
+            with socket.create_connection(("127.0.0.1", port), timeout=0.2):
+                pass
+            process.send_signal(signal.SIGINT)
+            self.assertEqual(process.wait(timeout=5), 0)
+            state = json.loads((state_directory / "services.json").read_text())
+            self.assertEqual(state["services"], {})
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=2)
+
+    def test_stop_action_requests_graceful_shutdown_from_existing_supervisor(self):
+        port = free_port()
+        gateway = fixture_service(
+            self.root, "gateway", port, marker="controlled-stop-gateway"
+        )
+        manager = self.manager([gateway])
+        manager.acquire_manager_lease()
+        try:
+            manager.start_all()
+            process = manager._processes["gateway"]
+            manager.start_control_channel()
+            supervisor = threading.Thread(target=manager.supervise, daemon=True)
+            supervisor.start()
+
+            result = request_gateway_control_operation(
+                self.state, "stop-stack", "controlled-stack-stop"
+            )
+
+            self.assertTrue(result["success"], result)
+            self.assertEqual(result["status"], "STOPPED")
+            supervisor.join(timeout=3)
+            self.assertFalse(supervisor.is_alive())
+            self.assertIsNotNone(process.poll())
+            state = json.loads((self.state / "services.json").read_text())
+            self.assertEqual(state["services"], {})
+            self.assertEqual(state["gatewayLifecycle"]["state"], "STOPPED")
+        finally:
+            manager.close_control_channel()
+            manager.release_manager_lease()
+
+    def test_controlled_auth_restart_preserves_unrelated_process_identity_and_supervision(self):
+        auth_port, gateway_port = free_port(), free_port()
+        auth = fixture_service(self.root, "auth", auth_port, marker="auth-fixture")
+        gateway = fixture_service(self.root, "gateway", gateway_port, marker="gateway-fixture")
+        manager = self.manager([auth, gateway], timeout=1.5)
+        manager.acquire_manager_lease()
+        try:
+            manager.start_all()
+            old_auth_pid = manager.owned_processes()["auth"]
+            gateway_pid = manager.owned_processes()["gateway"]
+            gateway_record = json.loads((self.state / "services.json").read_text())["services"]["gateway"]
+            manager.start_control_channel()
+            with patch.object(
+                manager,
+                "_listener_details",
+                side_effect=lambda _port: [
+                    ("127.0.0.1", [manager._processes["auth"].pid])
+                ],
+            ):
+                supervisor = threading.Thread(target=manager.supervise, daemon=True)
+                supervisor.start()
+                outcomes = []
+                request = threading.Thread(
+                    target=lambda: outcomes.append(
+                        request_helper_restart(self.state, "test-restart-1", timeout=10)
+                    ),
+                    daemon=True,
+                )
+                request.start()
+                request.join(timeout=10)
+                self.assertFalse(request.is_alive(), "control request did not complete")
+                self.assertTrue(outcomes[0]["success"], outcomes[0])
+                self.assertTrue(supervisor.is_alive(), "supervisor stopped after intentional helper exit")
+                repeated = request_helper_restart(self.state, "test-restart-1", timeout=10)
+                self.assertTrue(repeated["success"], repeated)
+                self.assertEqual(manager.owned_processes()["gateway"], gateway_pid)
+                self.assertTrue(
+                    manager._process_matches(
+                        gateway,
+                        gateway_pid,
+                        gateway_record["start_ticks"],
+                        managed=True,
+                    )
+                )
+                new_auth_pid = manager.owned_processes()["auth"]
+                self.assertNotEqual(new_auth_pid, old_auth_pid)
+                state = json.loads((self.state / "services.json").read_text())
+                self.assertEqual(state["services"]["auth"]["pid"], new_auth_pid)
+                transaction = state["controlOperations"]["test-restart-1"]
+                self.assertEqual(transaction["status"], "SUCCEEDED")
+                self.assertNotIn("candidateProcess", transaction)
+                self.assertIsNone(state["activeControlOperation"])
+                manager.stop_managed()
+                supervisor.join(timeout=3)
+                self.assertFalse(supervisor.is_alive())
+        finally:
+            manager.close_control_channel()
+            manager.release_manager_lease()
+
+    def test_controlled_gateway_restart_preserves_unrelated_identity_and_supervision(self):
+        ports = {name: free_port() for name in ("gateway", "frontend", "auth", "voice")}
+        services = [
+            fixture_service(
+                self.root,
+                name,
+                port,
+                marker=f"{name}-gateway-restart-fixture",
+            )
+            for name, port in ports.items()
+        ]
+        manager = self.manager(services, timeout=1.5)
+        manager.acquire_manager_lease()
+        try:
+            manager.start_all()
+            old_gateway_pid = manager.owned_processes()["gateway"]
+            state_before = json.loads((self.state / "services.json").read_text())
+            unrelated_before = {
+                name: state_before["services"][name]
+                for name in ("frontend", "auth", "voice")
+            }
+            manager.start_control_channel()
+            with patch.object(
+                manager,
+                "_listener_details",
+                side_effect=lambda port: [
+                    ("127.0.0.1", [manager._processes["gateway"].pid])
+                ] if port == ports["gateway"] else None,
+            ):
+                supervisor = threading.Thread(target=manager.supervise, daemon=True)
+                supervisor.start()
+                outcomes = []
+                request = threading.Thread(
+                    target=lambda: outcomes.append(
+                        request_gateway_restart(
+                            self.state, "gateway-restart-test-1", timeout=15
+                        )
+                    ),
+                    daemon=True,
+                )
+                request.start()
+                request.join(timeout=15)
+                self.assertFalse(request.is_alive(), "gateway restart request did not complete")
+                self.assertTrue(outcomes[0]["success"], outcomes[0])
+                self.assertTrue(
+                    supervisor.is_alive(),
+                    "supervisor treated the intentional gateway exit as a crash",
+                )
+                current = json.loads((self.state / "services.json").read_text())
+                self.assertNotEqual(current["services"]["gateway"]["pid"], old_gateway_pid)
+                for name, old_record in unrelated_before.items():
+                    self.assertEqual(current["services"][name], old_record)
+                    self.assertEqual(
+                        manager.owned_processes()[name], old_record["pid"]
+                    )
+                transaction = current["controlOperations"]["gateway-restart-test-1"]
+                self.assertEqual(transaction["operation"], "restart-gateway")
+                self.assertEqual(transaction["service"], "gateway")
+                self.assertEqual(transaction["status"], "SUCCEEDED")
+                self.assertIsNone(current["activeControlOperation"])
+                self.assertEqual(current["gatewayLifecycle"]["state"], "RUNNING")
+                self.assertEqual(
+                    current["gatewayLifecycle"]["operationId"],
+                    "gateway-restart-test-1",
+                )
+                self.assertEqual(
+                    [
+                        event["state"]
+                        for event in current["gatewayLifecycle"]["history"]
+                        if event["operationId"] == "gateway-restart-test-1"
+                    ],
+                    ["QUIESCING", "QUIESCED", "RECOVERING", "RUNNING"],
+                )
+                manager.stop_managed()
+                supervisor.join(timeout=3)
+                self.assertFalse(supervisor.is_alive())
+        finally:
+            manager.close_control_channel()
+            manager.release_manager_lease()
+
+    def test_gateway_restart_rejects_stale_or_mismatched_identity_without_signalling(self):
+        for mismatch in ("start_ticks", "pid"):
+            with self.subTest(mismatch=mismatch):
+                gateway_port, other_port = free_port(), free_port()
+                gateway = fixture_service(
+                    self.root, "gateway", gateway_port, marker=f"gateway-{mismatch}"
+                )
+                other = fixture_service(
+                    self.root, "auth", other_port, marker=f"auth-{mismatch}"
+                )
+                manager = self.manager([gateway, other], timeout=1.5)
+                manager.acquire_manager_lease()
+                try:
+                    manager.start_all()
+                    original_pid = manager.owned_processes()["gateway"]
+                    state = json.loads((self.state / "services.json").read_text())
+                    if mismatch == "start_ticks":
+                        state["services"]["gateway"]["start_ticks"] += 1
+                    else:
+                        state["services"]["gateway"]["pid"] = state["services"]["auth"]["pid"]
+                    manager._write_state(state)
+
+                    result = manager._restart_gateway(f"stale-gateway-{mismatch}")
+
+                    self.assertFalse(result["success"])
+                    self.assertEqual(result["status"], "REJECTED_STALE")
+                    self.assertIsNone(manager._processes["gateway"].poll())
+                    self.assertEqual(manager.owned_processes()["gateway"], original_pid)
+                    persisted = json.loads((self.state / "services.json").read_text())
+                    self.assertNotIn(
+                        f"stale-gateway-{mismatch}",
+                        persisted.get("controlOperations", {}),
+                    )
+                    persisted["services"]["gateway"] = manager._record_for(
+                        gateway, original_pid
+                    )
+                    manager._write_state(persisted)
+                    manager.stop_managed()
+                finally:
+                    manager.release_manager_lease()
+
+    def test_gateway_quiesce_and_resume_preserve_other_services_and_supervisor(self):
+        auth_port, gateway_port = free_port(), free_port()
+        auth = fixture_service(self.root, "auth", auth_port, marker="auth-quiesce-fixture")
+        gateway = fixture_service(
+            self.root, "gateway", gateway_port, marker="gateway-quiesce-fixture"
+        )
+        manager = self.manager([auth, gateway], timeout=1.5)
+        manager.acquire_manager_lease()
+        try:
+            manager.start_all()
+            auth_pid = manager.owned_processes()["auth"]
+            original_gateway_pid = manager.owned_processes()["gateway"]
+            manager.start_control_channel()
+
+            def listeners(port):
+                process = manager._processes.get("gateway")
+                if port != gateway_port or process is None or process.poll() is not None:
+                    return []
+                return [("127.0.0.1", [process.pid])]
+
+            with patch.object(manager, "_listener_details", side_effect=listeners):
+                supervisor = threading.Thread(target=manager.supervise, daemon=True)
+                supervisor.start()
+                outcomes = []
+                request = threading.Thread(
+                    target=lambda: outcomes.append(
+                        request_gateway_control_operation(
+                            self.state, "quiesce-gateway", "gateway-quiesce-test"
+                        )
+                    ),
+                    daemon=True,
+                )
+                request.start()
+                request.join(timeout=10)
+                self.assertFalse(request.is_alive())
+                self.assertTrue(outcomes[0]["success"], outcomes[0])
+                self.assertEqual(outcomes[0]["status"], "GATEWAY_STOPPED")
+                self.assertEqual(outcomes[0]["gatewayStatus"], "STOPPED")
+                self.assertEqual(outcomes[0]["writersStatus"], "NOT_VERIFIED")
+                self.assertTrue(supervisor.is_alive())
+                self.assertNotIn("gateway", manager.owned_processes())
+                self.assertEqual(manager.owned_processes()["auth"], auth_pid)
+                self.assertNotIn("gateway", manager._processes)
+
+                state = json.loads((self.state / "services.json").read_text())
+                self.assertEqual(state["gatewayQuiesce"]["status"], "QUIESCED")
+                self.assertEqual(state["gatewayQuiesce"]["writersStatus"], "NOT_VERIFIED")
+                self.assertEqual(state["gatewayLifecycle"]["state"], "QUIESCED")
+                self.assertTrue(state["gatewayQuiesce"]["reason"])
+                repeated_quiesce = manager._quiesce_gateway(
+                    "gateway-quiesce-repeat"
+                )
+                self.assertTrue(repeated_quiesce["success"], repeated_quiesce)
+                self.assertEqual(
+                    repeated_quiesce["status"], "GATEWAY_STOPPED"
+                )
+                self.assertNotIn("gateway", state["services"])
+                self.assertEqual(
+                    state["controlOperations"]["gateway-quiesce-test"]["status"],
+                    "SUCCEEDED",
+                )
+
+                attestation_result = request_gateway_control_operation(
+                    self.state,
+                    "attest-gateway-writers",
+                    "gateway-writer-attestation-test",
+                    attestation=operator_writer_attestation("gateway-quiesce-test"),
+                )
+                self.assertTrue(attestation_result["success"], attestation_result)
+                self.assertEqual(attestation_result["writersStatus"], "OPERATOR_ATTESTED")
+                resumed = []
+                request = threading.Thread(
+                    target=lambda: resumed.append(
+                        request_gateway_control_operation(
+                            self.state, "resume-gateway", "gateway-resume-test"
+                        )
+                    ),
+                    daemon=True,
+                )
+                request.start()
+                request.join(timeout=10)
+                self.assertFalse(request.is_alive())
+                self.assertTrue(resumed[0]["success"], resumed[0])
+                self.assertEqual(resumed[0]["status"], "GATEWAY_RESUMED")
+                self.assertEqual(resumed[0]["writersStatus"], "OPERATOR_ATTESTED")
+                self.assertEqual(resumed[0]["writerAttestationSource"], "OPERATOR")
+                self.assertTrue(supervisor.is_alive())
+                self.assertNotEqual(
+                    manager.owned_processes()["gateway"], original_gateway_pid
+                )
+                self.assertEqual(manager.owned_processes()["auth"], auth_pid)
+                state = json.loads((self.state / "services.json").read_text())
+                self.assertNotIn("gatewayQuiesce", state)
+                self.assertEqual(state["gatewayLifecycle"]["state"], "RUNNING")
+                self.assertEqual(state["services"]["gateway"]["pid"], manager.owned_processes()["gateway"])
+                manager.stop_managed()
+                supervisor.join(timeout=3)
+                self.assertFalse(supervisor.is_alive())
+        finally:
+            manager.close_control_channel()
+            manager.release_manager_lease()
+
+    def test_read_only_status_reports_verified_manager_process_without_mutating_state(self):
+        port = free_port()
+        gateway = fixture_service(
+            self.root, "gateway", port, marker="gateway-read-only-status"
+        )
+        manager = self.manager([gateway])
+        manager.acquire_manager_lease()
+        try:
+            manager.start_all()
+            pid = manager.owned_processes()["gateway"]
+            state_before = (self.state / "services.json").read_bytes()
+
+            def listeners(listener_port):
+                if listener_port == port:
+                    return [("127.0.0.1", [pid])]
+                return []
+
+            with (
+                patch.object(manager, "_listener_details", side_effect=listeners),
+                patch.object(manager, "_write_state", side_effect=AssertionError),
+                patch.object(manager, "_start_service", side_effect=AssertionError),
+                patch.object(manager, "_stop_record", side_effect=AssertionError),
+                patch.object(manager, "stop_managed", side_effect=AssertionError),
+                patch.object(manager, "_restart_gateway", side_effect=AssertionError),
+                patch.object(manager, "_quiesce_gateway", side_effect=AssertionError),
+                patch.object(manager, "_resume_gateway", side_effect=AssertionError),
+                patch.object(service_manager_module.os, "kill", side_effect=AssertionError),
+                patch.object(
+                    service_manager_module.signal,
+                    "pidfd_send_signal",
+                    side_effect=AssertionError,
+                    create=True,
+                ),
+            ):
+                status = manager.read_only_status()
+
+            self.assertEqual(status["stateStatus"], "AVAILABLE")
+            self.assertEqual(
+                status["managerOwnershipStatus"], "HELD_BY_THIS_MANAGER"
+            )
+            self.assertEqual(
+                status["services"]["gateway"],
+                {
+                    "identityStatus": "MATCH",
+                    "listenerStatus": "OWNED_BY_RECORDED_PROCESS",
+                    "healthProbe": "HEALTHY",
+                },
+            )
+            self.assertEqual(
+                status["gatewayQuiesce"]["status"], "NOT_QUIESCED"
+            )
+            self.assertEqual(status["writersStatus"], "NOT_VERIFIED")
+            self.assertEqual(
+                (self.state / "services.json").read_bytes(), state_before
+            )
+        finally:
+            manager.stop_managed()
+            manager.release_manager_lease()
+
+    def test_read_only_status_reports_stale_and_ambiguous_process_records(self):
+        port = free_port()
+        gateway = fixture_service(
+            self.root, "gateway", port, marker="gateway-status-stale"
+        )
+        manager = self.manager([gateway])
+        manager.acquire_manager_lease()
+        try:
+            manager.start_all()
+            pid = manager.owned_processes()["gateway"]
+            state = json.loads((self.state / "services.json").read_text())
+
+            state["services"]["gateway"]["start_ticks"] += 1
+            manager._write_state(state)
+
+            with patch.object(
+                manager,
+                "_listener_details",
+                return_value=[("127.0.0.1", [pid])],
+            ), patch.object(manager, "_probe", side_effect=AssertionError):
+                mismatched = manager.read_only_status()
+            self.assertEqual(
+                mismatched["services"]["gateway"]["identityStatus"], "MISMATCH"
+            )
+            self.assertEqual(
+                mismatched["services"]["gateway"]["listenerStatus"],
+                "UNVERIFIED_OWNER",
+            )
+            self.assertEqual(
+                mismatched["services"]["gateway"]["healthProbe"],
+                "SKIPPED_IDENTITY_UNVERIFIED",
+            )
+
+            state["services"]["gateway"]["start_ticks"] = "invalid"
+            manager._write_state(state)
+            with patch.object(
+                manager,
+                "_listener_details",
+                return_value=[("127.0.0.1", [pid])],
+            ), patch.object(manager, "_probe", side_effect=AssertionError):
+                ambiguous = manager.read_only_status()
+            self.assertEqual(
+                ambiguous["services"]["gateway"]["identityStatus"], "AMBIGUOUS"
+            )
+            self.assertEqual(
+                ambiguous["services"]["gateway"]["healthProbe"],
+                "SKIPPED_IDENTITY_UNVERIFIED",
+            )
+
+            state["services"]["gateway"]["pid"] = 99999999
+            state["services"]["gateway"]["start_ticks"] = 1
+            manager._write_state(state)
+            stale = manager.read_only_status()
+            self.assertEqual(
+                stale["services"]["gateway"]["identityStatus"], "STALE"
+            )
+            self.assertEqual(
+                stale["services"]["gateway"]["healthProbe"],
+                "SKIPPED_IDENTITY_UNVERIFIED",
+            )
+        finally:
+            state = json.loads((self.state / "services.json").read_text())
+            state["services"]["gateway"] = manager._record_for(
+                gateway, manager.owned_processes()["gateway"]
+            )
+            manager._write_state(state)
+            manager.stop_managed()
+            manager.release_manager_lease()
+
+    def test_read_only_status_reports_listener_and_health_probe_failures(self):
+        port = free_port()
+        gateway = fixture_service(
+            self.root, "gateway", port, marker="gateway-status-probe-failure"
+        )
+        manager = self.manager([gateway])
+        manager.acquire_manager_lease()
+        try:
+            manager.start_all()
+            pid = manager.owned_processes()["gateway"]
+
+            with patch.object(manager, "_listener_details", return_value=None):
+                unavailable_listener = manager.read_only_status()
+            self.assertEqual(
+                unavailable_listener["services"]["gateway"]["listenerStatus"],
+                "UNAVAILABLE",
+            )
+            self.assertEqual(
+                unavailable_listener["services"]["gateway"]["healthProbe"],
+                "SKIPPED_LISTENER_UNVERIFIED",
+            )
+
+            with patch.object(manager, "_listener_details", return_value=[]):
+                no_listener = manager.read_only_status()
+            self.assertEqual(
+                no_listener["services"]["gateway"]["listenerStatus"],
+                "NOT_LISTENING",
+            )
+            self.assertEqual(
+                no_listener["services"]["gateway"]["healthProbe"],
+                "SKIPPED_LISTENER_UNVERIFIED",
+            )
+
+            manager.services = (
+                Service(
+                    gateway.name,
+                    gateway.host,
+                    gateway.port,
+                    gateway.command,
+                    gateway.cwd,
+                    lambda: None,
+                    gateway.identity,
+                ),
+            )
+            with patch.object(
+                manager,
+                "_listener_details",
+                return_value=[("127.0.0.1", [pid])],
+            ):
+                unhealthy = manager.read_only_status()
+            self.assertEqual(
+                unhealthy["services"]["gateway"]["identityStatus"], "MATCH"
+            )
+            self.assertEqual(
+                unhealthy["services"]["gateway"]["healthProbe"], "UNHEALTHY"
+            )
+            self.assertEqual(unhealthy["writersStatus"], "NOT_VERIFIED")
+        finally:
+            manager.stop_managed()
+            manager.release_manager_lease()
+
+    def test_read_only_status_reports_persistent_quiesce_without_claiming_writers_stopped(self):
+        gateway = fixture_service(
+            self.root, "gateway", free_port(), marker="gateway-status-quiesced"
+        )
+        manager = self.manager([gateway])
+        self.state.mkdir(mode=0o700)
+        manager._write_state({
+            "version": 1,
+            "services": {},
+            "gatewayQuiesce": {"status": "QUIESCED"},
+        })
+
+        with patch.object(manager, "_listener_details", return_value=[]):
+            status = manager.read_only_status()
+
+        self.assertEqual(status["gatewayQuiesce"]["status"], "QUIESCED")
+        self.assertEqual(status["gatewayQuiesce"]["writersStatus"], "NOT_VERIFIED")
+        self.assertEqual(status["writersStatus"], "NOT_VERIFIED")
+
+    def test_read_only_status_fails_closed_for_missing_or_malformed_manager_state(self):
+        gateway = fixture_service(
+            self.root, "gateway", free_port(), marker="gateway-status-missing-state"
+        )
+        manager = self.manager([gateway])
+        with patch.object(manager, "_listener_details", return_value=[]):
+            missing = manager.read_only_status()
+        self.assertEqual(missing["stateStatus"], "MISSING")
+        self.assertEqual(
+            missing["services"]["gateway"]["identityStatus"], "NOT_RECORDED"
+        )
+        self.assertEqual(missing["writersStatus"], "NOT_VERIFIED")
+        self.assertFalse(self.state.exists())
+
+        self.state.mkdir(mode=0o700)
+        state_path = self.state / "services.json"
+        state_path.write_text("{", encoding="utf-8")
+        state_path.chmod(0o600)
+        malformed_bytes = state_path.read_bytes()
+        malformed = manager.read_only_status()
+        self.assertEqual(malformed["stateStatus"], "UNAVAILABLE")
+        self.assertEqual(malformed["services"], {})
+        self.assertEqual(malformed["writersStatus"], "NOT_VERIFIED")
+        self.assertEqual(state_path.read_bytes(), malformed_bytes)
+
+    def test_status_cli_is_observational_and_emits_json(self):
+        expected = {
+            "stateStatus": "MISSING",
+            "managerOwnershipStatus": "NOT_VERIFIED",
+            "services": {},
+            "gatewayQuiesce": {
+                "status": "NOT_QUIESCED",
+                "writersStatus": "NOT_VERIFIED",
+            },
+            "writersStatus": "NOT_VERIFIED",
+        }
+        output = StringIO()
+        with (
+            patch.object(
+                service_manager_module,
+                "ServiceManager",
+            ) as manager_class,
+            redirect_stdout(output),
+        ):
+            manager_class.return_value.read_only_status.return_value = expected
+            result = service_manager_module._main(
+                ["status", "--root", str(self.root)]
+            )
+
+        self.assertEqual(result, 0)
+        self.assertEqual(json.loads(output.getvalue()), expected)
+        manager_class.return_value.acquire_manager_lease.assert_not_called()
+        manager_class.return_value.start_all.assert_not_called()
+        manager_class.return_value.stop_managed.assert_not_called()
+        manager_class.return_value.close_control_channel.assert_called_once()
+
+    def test_quiesce_identity_mismatch_is_rejected_without_signalling(self):
+        gateway_port = free_port()
+        gateway = fixture_service(
+            self.root, "gateway", gateway_port, marker="gateway-stale-quiesce-fixture"
+        )
+        manager = self.manager([gateway])
+        manager.acquire_manager_lease()
+        try:
+            manager.start_all()
+            process = manager._processes["gateway"]
+            state = json.loads((self.state / "services.json").read_text())
+            state["services"]["gateway"]["start_ticks"] += 1
+            manager._write_state(state)
+
+            result = manager._quiesce_gateway("stale-quiesce")
+
+            self.assertFalse(result["success"])
+            self.assertEqual(result["status"], "REJECTED_STALE")
+            self.assertIsNone(process.poll())
+            persisted = json.loads((self.state / "services.json").read_text())
+            self.assertNotIn("gatewayQuiesce", persisted)
+            persisted["services"]["gateway"] = manager._record_for(
+                gateway, process.pid
+            )
+            manager._write_state(persisted)
+            manager.stop_managed()
+        finally:
+            manager.release_manager_lease()
+
+    def test_quiesce_listener_conflict_is_refused_without_signalling(self):
+        gateway_port = free_port()
+        gateway = fixture_service(
+            self.root, "gateway", gateway_port, marker="gateway-listener-conflict"
+        )
+        manager = self.manager([gateway])
+        manager.acquire_manager_lease()
+        try:
+            manager.start_all()
+            process = manager._processes["gateway"]
+            with patch.object(
+                manager,
+                "_listener_details",
+                return_value=[("127.0.0.1", [process.pid + 100000])],
+            ):
+                result = manager._quiesce_gateway("listener-conflict-quiesce")
+
+            self.assertFalse(result["success"])
+            self.assertEqual(result["status"], "LISTENER_CONFLICT")
+            self.assertIsNone(process.poll())
+            persisted = json.loads((self.state / "services.json").read_text())
+            self.assertNotIn("gatewayQuiesce", persisted)
+            manager.stop_managed()
+        finally:
+            manager.release_manager_lease()
+
+    def test_quiesce_shutdown_failure_is_persisted_and_does_not_claim_stopped(self):
+        gateway_port = free_port()
+        gateway = fixture_service(
+            self.root, "gateway", gateway_port, marker="gateway-shutdown-failure"
+        )
+        manager = self.manager([gateway])
+        manager.acquire_manager_lease()
+        try:
+            manager.start_all()
+            process = manager._processes["gateway"]
+
+            def timeout_wait(timeout):
+                raise subprocess.TimeoutExpired(process.args, timeout)
+
+            def listeners(_port):
+                if process.poll() is None:
+                    return [("127.0.0.1", [process.pid])]
+                return []
+
+            with (
+                patch.object(manager, "_listener_details", side_effect=listeners),
+                patch.object(signal, "pidfd_send_signal") as send_signal,
+                patch.object(process, "wait", side_effect=timeout_wait),
+            ):
+                result = manager._quiesce_gateway("shutdown-failure-quiesce")
+
+            self.assertFalse(result["success"])
+            self.assertEqual(result["status"], "NEEDS_OPERATOR")
+            self.assertEqual(result["gatewayStatus"], "RUNNING_IDENTITY_VERIFIED")
+            self.assertEqual(result["writersStatus"], "NOT_VERIFIED")
+            self.assertEqual(
+                [call.args[1] for call in send_signal.call_args_list],
+                [signal.SIGINT, signal.SIGTERM, signal.SIGKILL],
+            )
+            persisted = json.loads((self.state / "services.json").read_text())
+            self.assertEqual(
+                persisted["gatewayQuiesce"]["status"], "NEEDS_OPERATOR"
+            )
+            self.assertIn("gateway", persisted["services"])
+            self.assertIsNone(process.poll())
+            manager.stop_managed()
+        finally:
+            manager.release_manager_lease()
+
+    def test_quiesced_state_persists_across_manager_invocations_and_blocks_autostart(self):
+        auth_port, gateway_port = free_port(), free_port()
+        auth = fixture_service(self.root, "auth", auth_port, marker="auth-persist-quiesce")
+        gateway = fixture_service(
+            self.root, "gateway", gateway_port, marker="gateway-persist-quiesce"
+        )
+        first = self.manager([auth, gateway])
+        first.acquire_manager_lease()
+        try:
+            first.start_all()
+
+            def listeners(_port):
+                process = first._processes.get("gateway")
+                if process is None or process.poll() is not None:
+                    return []
+                return [("127.0.0.1", [process.pid])]
+
+            with patch.object(first, "_listener_details", side_effect=listeners):
+                result = first._quiesce_gateway("persistent-quiesce")
+            self.assertTrue(result["success"], result)
+            first.stop_managed()
+        finally:
+            first.close_control_channel()
+            first.release_manager_lease()
+
+        second = self.manager([auth, gateway])
+        second.acquire_manager_lease()
+        try:
+            statuses = second.start_all()
+            self.assertIn("QUIESCED", statuses["gateway"])
+            self.assertIn("operationId=persistent-quiesce", statuses["gateway"])
+            self.assertIn("writers=NOT_VERIFIED", statuses["gateway"])
+            self.assertIn("gateway startup refused", statuses["gateway"])
+            self.assertNotIn("gateway", second.owned_processes())
+            persisted = json.loads((self.state / "services.json").read_text())
+            self.assertEqual(persisted["gatewayQuiesce"]["status"], "QUIESCED")
+            refused = second._resume_gateway("blocked-writer-safety")
+            self.assertFalse(refused["success"])
+            self.assertEqual(refused["status"], "REFUSED_WRITER_SAFETY")
+            attestation = operator_writer_attestation("persistent-quiesce")
+            attested = second._attest_gateway_writers("persistent-writer-attestation", attestation)
+            self.assertTrue(attested["success"], attested)
+            self.assertEqual(attested["writersStatus"], "OPERATOR_ATTESTED")
+
+            def resumed_listeners(port):
+                process = second._processes.get("gateway")
+                if port != gateway_port or process is None or process.poll() is not None:
+                    return []
+                return [("127.0.0.1", [process.pid])]
+
+            with patch.object(second, "_listener_details", side_effect=resumed_listeners):
+                resumed = second._resume_gateway("explicit-resume")
+            self.assertTrue(resumed["success"], resumed)
+            self.assertEqual(resumed["status"], "GATEWAY_RESUMED")
+            self.assertIn("gateway", second.owned_processes())
+            second.stop_managed()
+        finally:
+            second.close_control_channel()
+            second.release_manager_lease()
+
+    def test_interrupted_quiesce_fails_closed_when_original_gateway_is_still_live(self):
+        gateway_port = free_port()
+        gateway = fixture_service(
+            self.root, "gateway", gateway_port, marker="gateway-interrupted-quiesce-live"
+        )
+        manager = self.manager([gateway])
+        manager.acquire_manager_lease()
+        try:
+            manager.start_all()
+            process = manager._processes["gateway"]
+            record = json.loads((self.state / "services.json").read_text())[
+                "services"
+            ]["gateway"]
+            manager._write_state({
+                "version": 1,
+                "services": {"gateway": record},
+                "gatewayQuiesce": {
+                    "status": "QUIESCE_REQUESTED",
+                    "operationId": "interrupted-quiesce",
+                    "process": record,
+                    "writersStatus": "NOT_VERIFIED",
+                },
+                "activeControlOperation": "interrupted-quiesce",
+                "controlOperations": {
+                    "interrupted-quiesce": {
+                        "operation": "quiesce-gateway",
+                        "service": "gateway",
+                        "status": "QUIESCING",
+                        "oldProcess": record,
+                        "events": [],
+                    }
+                },
+            })
+
+            state = json.loads((self.state / "services.json").read_text())
+            with self.assertRaisesRegex(StartupFailure, "operator review"):
+                manager._recover_interrupted_control(state)
+
+            self.assertIsNone(process.poll())
+            persisted = json.loads((self.state / "services.json").read_text())
+            self.assertEqual(
+                persisted["gatewayQuiesce"]["status"], "NEEDS_OPERATOR"
+            )
+            self.assertEqual(
+                persisted["controlOperations"]["interrupted-quiesce"]["status"],
+                "INTERRUPTED_NEEDS_OPERATOR",
+            )
+            manager.stop_managed()
+        finally:
+            manager.release_manager_lease()
+
+    def test_interrupted_quiesce_finalizes_only_after_original_pid_is_absent(self):
+        gateway_port = free_port()
+        gateway = fixture_service(
+            self.root, "gateway", gateway_port, marker="gateway-interrupted-quiesce-exited"
+        )
+        manager = self.manager([gateway])
+        manager.acquire_manager_lease()
+        try:
+            manager.start_all()
+            process = manager._processes["gateway"]
+            record = json.loads((self.state / "services.json").read_text())[
+                "services"
+            ]["gateway"]
+            manager._write_state({
+                "version": 1,
+                "services": {"gateway": record},
+                "gatewayQuiesce": {
+                    "status": "QUIESCE_REQUESTED",
+                    "operationId": "interrupted-quiesce-exited",
+                    "process": record,
+                    "writersStatus": "NOT_VERIFIED",
+                },
+                "activeControlOperation": "interrupted-quiesce-exited",
+                "controlOperations": {
+                    "interrupted-quiesce-exited": {
+                        "operation": "quiesce-gateway",
+                        "service": "gateway",
+                        "status": "QUIESCING",
+                        "oldProcess": record,
+                        "events": [],
+                    }
+                },
+            })
+            self.assertTrue(manager._stop_record(gateway, record))
+            self.assertIsNotNone(process.poll())
+
+            statuses = manager.start_all()
+
+            self.assertIn("quiesced", statuses["gateway"])
+            self.assertNotIn("gateway", manager.owned_processes())
+            persisted = json.loads((self.state / "services.json").read_text())
+            self.assertEqual(persisted["gatewayQuiesce"]["status"], "QUIESCED")
+            self.assertEqual(
+                persisted["controlOperations"]["interrupted-quiesce-exited"]["status"],
+                "SUCCEEDED",
+            )
+        finally:
+            manager.stop_managed()
+            manager.release_manager_lease()
+
+    def test_resume_refuses_stale_unrelated_service_and_keeps_quiesce(self):
+        auth_port, gateway_port = free_port(), free_port()
+        auth = fixture_service(self.root, "auth", auth_port, marker="auth-stale-resume")
+        gateway = fixture_service(
+            self.root, "gateway", gateway_port, marker="gateway-stale-resume"
+        )
+        manager = self.manager([auth, gateway])
+        manager.acquire_manager_lease()
+        try:
+            manager.start_all()
+
+            def listeners(port):
+                process = manager._processes.get("gateway")
+                if port != gateway_port or process is None or process.poll() is not None:
+                    return []
+                return [("127.0.0.1", [process.pid])]
+
+            with patch.object(manager, "_listener_details", side_effect=listeners):
+                stopped = manager._quiesce_gateway("quiesce-before-stale-resume")
+            self.assertTrue(stopped["success"], stopped)
+            state = json.loads((self.state / "services.json").read_text())
+            auth_record = state["services"]["auth"]
+            attestation = operator_writer_attestation("quiesce-before-stale-resume")
+            attested = manager._attest_gateway_writers(
+                "attestation-before-stale-resume", attestation
+            )
+            self.assertTrue(attested["success"], attested)
+            state = json.loads((self.state / "services.json").read_text())
+            state["services"]["auth"]["start_ticks"] += 1
+            manager._write_state(state)
+
+            with patch.object(manager, "_listener_details", return_value=[]):
+                result = manager._resume_gateway("stale-resume-attempt")
+
+            self.assertFalse(result["success"])
+            self.assertEqual(result["status"], "REJECTED_STALE")
+            self.assertNotIn("gateway", manager.owned_processes())
+            persisted = json.loads((self.state / "services.json").read_text())
+            self.assertEqual(persisted["gatewayQuiesce"]["status"], "QUIESCED")
+            persisted["services"]["auth"] = auth_record
+            manager._write_state(persisted)
+            manager.stop_managed()
+        finally:
+            manager.release_manager_lease()
+
+    def test_unrelated_service_failure_during_quiesce_does_not_restart_gateway(self):
+        auth_port, gateway_port = free_port(), free_port()
+        auth = fixture_service(self.root, "auth", auth_port, marker="auth-quiesce-crash")
+        gateway = fixture_service(
+            self.root, "gateway", gateway_port, marker="gateway-quiesce-crash"
+        )
+        manager = self.manager([auth, gateway])
+        manager.acquire_manager_lease()
+        try:
+            manager.start_all()
+
+            def listeners(port):
+                process = manager._processes.get("gateway")
+                if port != gateway_port or process is None or process.poll() is not None:
+                    return []
+                return [("127.0.0.1", [process.pid])]
+
+            with patch.object(manager, "_listener_details", side_effect=listeners):
+                result = manager._quiesce_gateway("quiesce-before-unrelated-crash")
+            self.assertTrue(result["success"], result)
+            manager.start_control_channel()
+            supervisor_result = []
+            supervisor = threading.Thread(
+                target=lambda: supervisor_result.append(manager.supervise()),
+                daemon=True,
+            )
+            supervisor.start()
+            manager._processes["auth"].terminate()
+            manager._processes["auth"].wait(timeout=2)
+            supervisor.join(timeout=5)
+
+            self.assertFalse(supervisor.is_alive())
+            self.assertEqual(supervisor_result, [1])
+            self.assertNotIn("gateway", manager.owned_processes())
+            state = json.loads((self.state / "services.json").read_text())
+            self.assertEqual(state["gatewayQuiesce"]["status"], "QUIESCED")
+            self.assertNotIn("gateway", state["services"])
+        finally:
+            manager.close_control_channel()
+            manager.release_manager_lease()
+
+    def test_unexpected_auth_crash_keeps_existing_stack_recovery_behavior(self):
+        auth_port, gateway_port = free_port(), free_port()
+        services = [
+            fixture_service(self.root, "auth", auth_port, marker="auth-crash-fixture"),
+            fixture_service(self.root, "gateway", gateway_port, marker="gateway-crash-fixture"),
+        ]
+        manager = self.manager(services)
+        manager.acquire_manager_lease()
+        try:
+            manager.start_all()
+            gateway = manager._processes["gateway"]
+            supervisor_result = []
+            supervisor = threading.Thread(
+                target=lambda: supervisor_result.append(manager.supervise()),
+                daemon=True,
+            )
+            supervisor.start()
+            manager._processes["auth"].terminate()
+            supervisor.join(timeout=5)
+            self.assertFalse(supervisor.is_alive())
+            self.assertEqual(supervisor_result, [1])
+            self.assertIsNotNone(gateway.poll())
+        finally:
+            manager.release_manager_lease()
+
+    def test_unexpected_gateway_crash_keeps_existing_stack_recovery_behavior(self):
+        auth_port, gateway_port = free_port(), free_port()
+        services = [
+            fixture_service(self.root, "auth", auth_port, marker="auth-gateway-crash-fixture"),
+            fixture_service(self.root, "gateway", gateway_port, marker="gateway-crash-fixture"),
+        ]
+        manager = self.manager(services)
+        manager.acquire_manager_lease()
+        try:
+            manager.start_all()
+            auth = manager._processes["auth"]
+            supervisor_result = []
+            supervisor = threading.Thread(
+                target=lambda: supervisor_result.append(manager.supervise()),
+                daemon=True,
+            )
+            supervisor.start()
+            manager._processes["gateway"].terminate()
+            supervisor.join(timeout=5)
+            self.assertFalse(supervisor.is_alive())
+            self.assertEqual(supervisor_result, [1])
+            self.assertIsNotNone(auth.poll())
+        finally:
+            manager.release_manager_lease()
+
+    def test_stale_helper_start_identity_is_rejected_without_signal(self):
+        auth_port, gateway_port = free_port(), free_port()
+        services = [
+            fixture_service(self.root, "auth", auth_port, marker="auth-stale-fixture"),
+            fixture_service(self.root, "gateway", gateway_port, marker="gateway-stale-fixture"),
+        ]
+        manager = self.manager(services)
+        manager.acquire_manager_lease()
+        try:
+            manager.start_all()
+            auth_process = manager._processes["auth"]
+            state = json.loads((self.state / "services.json").read_text())
+            state["services"]["auth"]["start_ticks"] += 1
+            (self.state / "services.json").write_text(json.dumps(state))
+            (self.state / "services.json").chmod(0o600)
+            result = manager._restart_auth("stale-identity")
+            self.assertEqual(result["status"], "REJECTED_STALE")
+            self.assertIsNone(auth_process.poll())
+            state["services"]["auth"]["start_ticks"] -= 1
+            state["services"]["auth"]["pid"] = 99999999
+            (self.state / "services.json").write_text(json.dumps(state))
+            (self.state / "services.json").chmod(0o600)
+            result = manager._restart_auth("stale-pid")
+            self.assertEqual(result["status"], "REJECTED_STALE")
+            self.assertIsNone(auth_process.poll())
+            manager.stop_managed()
+            auth_process.terminate()
+            auth_process.wait(timeout=2)
+        finally:
+            manager.release_manager_lease()
+
+    def test_manager_lease_is_exclusive_and_control_schema_is_bounded(self):
+        port = free_port()
+        service = fixture_service(self.root, "fixture", port)
+        manager = self.manager([service])
+        competing = self.manager([service])
+        manager.acquire_manager_lease()
+        try:
+            self.assertTrue(manager.manager_lease_path.is_file())
+            self.assertFalse(manager.control_socket_path.exists())
+            with self.assertRaisesRegex(StartupFailure, "Another service manager"):
+                competing.acquire_manager_lease()
+            manager.start_all()
+            manager.start_control_channel()
+            self.assertTrue(manager.control_socket_path.is_socket())
+            socket_info = manager.control_socket_path.stat()
+            self.assertEqual(stat.S_IMODE(socket_info.st_mode), 0o600)
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+                connection.settimeout(1)
+                connection.connect(str(manager.control_socket_path))
+                connection.sendall(b'{"operation":"stop","operationId":"bad"}\n')
+                response = json.loads(connection.makefile("rb").readline())
+            self.assertEqual(response["status"], "INVALID_REQUEST")
+            manager.stop_managed()
+        finally:
+            manager.close_control_channel()
+            manager.release_manager_lease()
+            competing.release_manager_lease()
+
+    def test_helper_shutdown_escalates_with_bounded_pidfd_signals(self):
+        auth_port, gateway_port = free_port(), free_port()
+        command = (
+            PYTHON,
+            "-u",
+            "-c",
+            "import signal,socket,sys; "
+            "signal.signal(signal.SIGINT,signal.SIG_IGN); "
+            "signal.signal(signal.SIGTERM,signal.SIG_IGN); "
+            "s=socket.socket(); s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1); "
+            "s.bind(('127.0.0.1',int(sys.argv[1]))); s.listen(); "
+            "print('auth-escalation-fixture',flush=True); "
+            "exec('while True:\\n c,a=s.accept()\\n c.close()')",
+            str(auth_port),
+        )
+        auth = fixture_service(
+            self.root,
+            "auth",
+            auth_port,
+            marker="auth-escalation-fixture",
+            command=command,
+        )
+        gateway = fixture_service(
+            self.root,
+            "gateway",
+            gateway_port,
+            marker="gateway-escalation-fixture",
+        )
+        manager = self.manager([auth, gateway], timeout=1)
+        manager.acquire_manager_lease()
+        try:
+            manager.start_all()
+            manager.start_control_channel()
+            gateway_pid = manager.owned_processes()["gateway"]
+            with patch(
+                "ultron_service_manager.HELPER_SHUTDOWN_STEPS",
+                ((signal.SIGINT, 0.05), (signal.SIGTERM, 0.05), (signal.SIGKILL, 0.5)),
+            ), patch.object(
+                manager,
+                "_listener_details",
+                side_effect=lambda _port: [
+                    ("127.0.0.1", [manager._processes["auth"].pid])
+                ],
+            ):
+                supervisor = threading.Thread(target=manager.supervise, daemon=True)
+                supervisor.start()
+                outcomes = []
+                request = threading.Thread(
+                    target=lambda: outcomes.append(
+                        request_helper_restart(self.state, "escalation-1", timeout=10)
+                    ),
+                    daemon=True,
+                )
+                request.start()
+                request.join(timeout=8)
+                self.assertFalse(request.is_alive())
+                self.assertTrue(outcomes[0]["success"], outcomes[0])
+                self.assertEqual(manager.owned_processes()["gateway"], gateway_pid)
+                manager.stop_managed()
+                supervisor.join(timeout=3)
+                self.assertFalse(supervisor.is_alive())
+        finally:
+            manager.close_control_channel()
+            manager.release_manager_lease()
+
+    def test_replacement_readiness_failure_is_recorded_without_touching_gateway(self):
+        auth_port, gateway_port = free_port(), free_port()
+        probe_state = {"fail": False}
+
+        def auth_probe():
+            if probe_state["fail"]:
+                return None
+            return fixture_service(self.root, "probe", auth_port).probe()
+
+        auth = fixture_service(
+            self.root,
+            "auth",
+            auth_port,
+            marker="auth-readiness-fixture",
+            probe=auth_probe,
+        )
+        gateway = fixture_service(
+            self.root,
+            "gateway",
+            gateway_port,
+            marker="gateway-readiness-fixture",
+        )
+        manager = self.manager([auth, gateway], timeout=0.25)
+        manager.acquire_manager_lease()
+        try:
+            manager.start_all()
+            gateway_pid = manager.owned_processes()["gateway"]
+            manager.start_control_channel()
+            probe_state["fail"] = True
+            with patch.object(
+                manager,
+                "_listener_details",
+                side_effect=lambda _port: [
+                    ("127.0.0.1", [manager._processes["auth"].pid])
+                ],
+            ):
+                supervisor = threading.Thread(target=manager.supervise, daemon=True)
+                supervisor.start()
+                outcomes = []
+                request = threading.Thread(
+                    target=lambda: outcomes.append(
+                        request_helper_restart(self.state, "readiness-fail-1", timeout=10)
+                    ),
+                    daemon=True,
+                )
+                request.start()
+                request.join(timeout=8)
+                self.assertFalse(request.is_alive())
+                self.assertFalse(outcomes[0]["success"])
+                self.assertEqual(outcomes[0]["status"], "FAILED")
+                self.assertEqual(manager.owned_processes().get("gateway"), gateway_pid)
+                state = json.loads((self.state / "services.json").read_text())
+                self.assertEqual(
+                    state["controlOperations"]["readiness-fail-1"]["status"],
+                    "FAILED",
+                )
+                manager.stop_managed()
+                supervisor.join(timeout=3)
+                self.assertFalse(supervisor.is_alive())
+        finally:
+            manager.close_control_channel()
+            manager.release_manager_lease()
+
+    def test_interrupted_candidate_is_identity_checked_and_safely_rolled_back(self):
+        auth_port, gateway_port = free_port(), free_port()
+        services = [
+            fixture_service(self.root, "auth", auth_port, marker="auth-interrupted-fixture"),
+            fixture_service(self.root, "gateway", gateway_port, marker="gateway-interrupted-fixture"),
+        ]
+        manager = self.manager(services)
+        manager.acquire_manager_lease()
+        candidate = None
+        try:
+            auth = services[0]
+            candidate = subprocess.Popen(
+                auth.command,
+                cwd=self.root,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            deadline = time.monotonic() + 2
+            while auth.probe() is None and time.monotonic() < deadline:
+                time.sleep(0.02)
+            candidate_record = manager._record_for(auth, candidate.pid)
+            state = {
+                "version": 1,
+                "services": {},
+                "activeControlOperation": "interrupted-candidate",
+                "controlOperations": {
+                    "interrupted-candidate": {
+                        "operation": "restart-auth",
+                        "service": "auth",
+                        "status": "VERIFYING",
+                        "createdAt": time.time(),
+                        "updatedAt": time.time(),
+                        "candidateProcess": candidate_record,
+                        "events": [],
+                    },
+                },
+            }
+            manager._write_state(state)
+
+            manager.start_all()
+
+            self.assertIsNotNone(candidate.poll())
+            persisted = json.loads((self.state / "services.json").read_text())
+            self.assertEqual(
+                persisted["controlOperations"]["interrupted-candidate"]["status"],
+                "FAILED",
+            )
+            self.assertIsNone(persisted["activeControlOperation"])
+            self.assertNotEqual(
+                persisted["services"]["auth"]["pid"],
+                candidate.pid,
+            )
+            manager.stop_managed()
+        finally:
+            if candidate is not None and candidate.poll() is None:
+                candidate.terminate()
+                candidate.wait(timeout=2)
+            manager.release_manager_lease()
+
+    def test_interrupted_ambiguous_candidate_is_never_signalled_or_adopted(self):
+        auth_port, gateway_port = free_port(), free_port()
+        services = [
+            fixture_service(self.root, "auth", auth_port, marker="auth-ambiguous-fixture"),
+            fixture_service(self.root, "gateway", gateway_port, marker="gateway-ambiguous-fixture"),
+        ]
+        manager = self.manager(services)
+        manager.acquire_manager_lease()
+        candidate = None
+        try:
+            auth = services[0]
+            candidate = subprocess.Popen(
+                auth.command,
+                cwd=self.root,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            deadline = time.monotonic() + 2
+            while auth.probe() is None and time.monotonic() < deadline:
+                time.sleep(0.02)
+            candidate_record = manager._record_for(auth, candidate.pid)
+            candidate_record["start_ticks"] += 1
+            manager._write_state({
+                "version": 1,
+                "services": {},
+                "activeControlOperation": "ambiguous-candidate",
+                "controlOperations": {
+                    "ambiguous-candidate": {
+                        "operation": "restart-auth",
+                        "service": "auth",
+                        "status": "VERIFYING",
+                        "createdAt": time.time(),
+                        "updatedAt": time.time(),
+                        "candidateProcess": candidate_record,
+                        "events": [],
+                    },
+                },
+            })
+
+            with self.assertRaisesRegex(StartupFailure, "ambiguous"):
+                manager.start_all()
+            self.assertIsNone(candidate.poll())
+        finally:
+            if candidate is not None and candidate.poll() is None:
+                candidate.terminate()
+                candidate.wait(timeout=2)
+            manager.release_manager_lease()
+
+if __name__ == "__main__":
+    unittest.main()

@@ -9,8 +9,11 @@ from pydantic import ValidationError
 from ultron.domain.content import (
     ContentCreativeEditPlan,
     ContentCreativeEditPlanV2,
+    ContentCreativeEditPlanV3,
+    ContentEditPlanGraphic,
     ContentEditPlanSegment,
     ContentEditPlanSource,
+    ContentEditPlanTransition,
 )
 
 
@@ -85,7 +88,7 @@ def test_creative_plan_validates_and_round_trips_deterministically():
         canonical.encode()
     ).hexdigest()
     assert hashlib.sha256(canonical.encode()).hexdigest() == (
-        "c5dfc6343899cc787c88ad7f830a309addb0b5fb95811da3b8c37ec7c822701d"
+        "602e5ef664be9cb5c508139fccf76015e6125039e08dc6c1c49a00330930746c"
     )
 
 
@@ -176,6 +179,213 @@ def test_v2_audio_plan_validates_and_round_trips_with_stable_digest():
     assert plan.schema_version == "cre-creative-plan-v2"
 
 
+def _graphic_directive(**overrides):
+    values = {
+        "graphic_type": "educational_overlay",
+        "segment_order": 2,
+        "start_seconds": 5.2,
+        "end_seconds": 5.8,
+        "x": 0.08,
+        "y": 0.1,
+        "width": 0.84,
+        "height": 0.16,
+        "visual_hierarchy": "primary",
+        "typography_profile": "educational_storytelling",
+        "entry_animation": "slide_up",
+        "exit_animation": "fade",
+        "entry_duration_seconds": 0.15,
+        "exit_duration_seconds": 0.15,
+        "easing": "ease_out",
+        "font_size": 32,
+        "content_text": "A supported phrase",
+        "evidence_transcript_id": "transcript-1",
+        "evidence_id": "transcript-segment-2",
+        "evidence_asset_id": "source-a",
+        "evidence_text": "A supported phrase from the transcript.",
+        "editorial_rationale": "Emphasis segment with exact transcript evidence.",
+    }
+    values.update(overrides)
+    return ContentEditPlanGraphic(**values)
+
+
+def test_v3_graphics_directive_validates_persists_and_reloads():
+    data = _v2_plan_data()
+    data["schema_version"] = "cre-creative-plan-v3"
+    data["segments"][1]["graphics"] = [_graphic_directive().model_dump(mode="json")]
+
+    plan = ContentCreativeEditPlanV3.model_validate(data)
+    reloaded = ContentCreativeEditPlanV3.model_validate_json(plan.model_dump_json())
+
+    assert reloaded == plan
+    assert reloaded.segments[1].graphics[0].content_text == "A supported phrase"
+    assert reloaded.segments[1].graphics[0].evidence_id == "transcript-segment-2"
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"x": 0.8, "width": 0.2},
+        {"y": 0.7, "height": 0.1},
+        {"start_seconds": 5.8, "end_seconds": 5.2},
+        {"content_text": "Unsupported extra claim"},
+        {"content_text": "x" * 33, "evidence_text": "x" * 33},
+        {"entry_animation": "arbitrary_filter"},
+        {"graphic_type": "invented_box"},
+    ],
+)
+def test_graphic_directive_rejects_unsafe_geometry_timing_or_unproven_text(overrides):
+    with pytest.raises(ValidationError):
+        _graphic_directive(**overrides)
+
+
+def test_graphic_timing_and_source_association_are_bound_to_plan_segment():
+    data = _v2_plan_data()
+    data["schema_version"] = "cre-creative-plan-v3"
+    graphic = _graphic_directive().model_dump(mode="json")
+    graphic["end_seconds"] = 7.1
+    data["segments"][1]["graphics"] = [graphic]
+    with pytest.raises(ValidationError):
+        ContentCreativeEditPlanV3.model_validate(data)
+
+    data["segments"][1]["graphics"][0]["end_seconds"] = 5.8
+    data["segments"][1]["graphics"][0]["evidence_asset_id"] = "another-source"
+    with pytest.raises(ValidationError):
+        ContentCreativeEditPlanV3.model_validate(data)
+
+
+def test_graphics_cannot_overlap_within_a_source_segment():
+    data = _v2_plan_data()
+    data["schema_version"] = "cre-creative-plan-v3"
+    data["segments"][1]["graphics"] = [
+        _graphic_directive().model_dump(mode="json"),
+        _graphic_directive(
+            start_seconds=5.7,
+            end_seconds=6.3,
+        ).model_dump(mode="json"),
+    ]
+    with pytest.raises(ValidationError):
+        ContentCreativeEditPlanV3.model_validate(data)
+
+
+def test_v2_plan_rejects_v3_only_graphic_directives():
+    data = _v2_plan_data()
+    data["segments"][1]["graphics"] = [_graphic_directive().model_dump(mode="json")]
+    with pytest.raises(ValidationError):
+        ContentCreativeEditPlanV2.model_validate(data)
+
+
+@pytest.mark.parametrize(
+    ("kind", "duration", "direction"),
+    [
+        ("hard_cut", 0.0, "none"),
+        ("cross_dissolve", 0.25, "none"),
+        ("fade_through_black", 0.3, "none"),
+        ("fade_through_white", 0.3, "none"),
+        ("directional_wipe", 0.2, "left"),
+        ("zoom", 0.2, "none"),
+    ],
+)
+def test_transition_directive_validates_supported_families(kind, duration, direction):
+    directive = ContentEditPlanTransition(
+        kind=kind,
+        duration_seconds=duration,
+        direction=direction,
+        from_timeline_order=1,
+        to_timeline_order=2,
+        decision_reason="Selected at a verified scene boundary.",
+        evidence=(
+            ("observed_scene_boundary", "editing_style")
+            if kind != "hard_cut"
+            else ("observed_scene_boundary",)
+        ),
+    )
+
+    assert directive.kind == kind
+    assert directive.duration_seconds == duration
+    assert directive.easing == "linear"
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        {"kind": "hard_cut", "duration_seconds": 0.1},
+        {"kind": "cross_dissolve", "duration_seconds": 0.0},
+        {"kind": "directional_wipe", "duration_seconds": 0.2},
+        {"kind": "cross_dissolve", "duration_seconds": 0.2, "direction": "left"},
+        {"kind": "zoom", "duration_seconds": 0.2, "easing": "bezier"},
+        {
+            "kind": "cross_dissolve",
+            "duration_seconds": 0.2,
+            "from_timeline_order": 1,
+            "to_timeline_order": 3,
+        },
+        {"kind": "motion_matched", "duration_seconds": 0.2},
+    ],
+)
+def test_transition_directive_rejects_invalid_configuration(values):
+    with pytest.raises(ValidationError):
+        ContentEditPlanTransition.model_validate(values)
+
+
+def test_v2_transition_directive_round_trips_with_boundary_association():
+    data = _v2_plan_data()
+    data["sources"][0]["scene_boundary_seconds"] = [2.0, 4.0, 6.0]
+    second = data["segments"][1]
+    second.update(
+        {
+            "source_in_seconds": 4.0,
+            "source_out_seconds": 6.0,
+            "selection_method": "distinct_detected_scene_interval",
+            "selected_scene_cut_seconds": 4.0,
+            "transition_before": "cross_dissolve",
+            "transition_duration_seconds": 0.25,
+            "transition": {
+                "kind": "cross_dissolve",
+                "duration_seconds": 0.25,
+                "direction": "none",
+                "from_timeline_order": 1,
+                "to_timeline_order": 2,
+                "decision_reason": "Style-selected at a detected scene boundary.",
+                "evidence": ["observed_scene_boundary", "editing_style"],
+            },
+        }
+    )
+    second["audio"]["source_in_seconds"] = 4.0
+    second["audio"]["source_out_seconds"] = 6.0
+
+    plan = ContentCreativeEditPlanV2.model_validate(data)
+    reloaded = ContentCreativeEditPlanV2.model_validate_json(
+        plan.model_dump_json()
+    )
+
+    assert reloaded == plan
+    assert reloaded.segments[1].transition is not None
+    assert reloaded.segments[1].transition.to_timeline_order == 2
+    assert reloaded.segments[1].transition.kind == "cross_dissolve"
+
+
+def test_v2_plan_rejects_transition_larger_than_adjacent_segment_window():
+    data = _v2_plan_data()
+    second = data["segments"][1]
+    second.update(
+        {
+            "transition_before": "cross_dissolve",
+            "transition_duration_seconds": 1.1,
+            "transition": {
+                "kind": "cross_dissolve",
+                "duration_seconds": 1.1,
+                "direction": "none",
+                "from_timeline_order": 1,
+                "to_timeline_order": 2,
+                "decision_reason": "Style-selected at a detected scene boundary.",
+                "evidence": ["observed_scene_boundary", "editing_style"],
+            },
+        }
+    )
+    with pytest.raises(ValidationError, match="half of an adjacent segment"):
+        ContentCreativeEditPlanV2.model_validate(data)
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [
@@ -209,6 +419,30 @@ def test_v2_intentional_silence_requires_null_source_bounds_and_zero_gain():
 
     data["segments"][0]["audio"]["gain_db"] = 1.0
     with pytest.raises(ValidationError):
+        ContentCreativeEditPlanV2.model_validate(data)
+
+
+def test_continuous_bed_plan_requires_one_contiguous_bounded_audio_source():
+    data = _v2_plan_data()
+    data["audio_policy"] = "continuous_bed"
+    for segment, (bed_start, bed_end) in zip(
+        data["segments"],
+        ((0.0, 2.0), (2.0, 4.0)),
+    ):
+        segment["audio"].update(
+            {
+                "bed_source_asset_id": "source-a",
+                "bed_source_in_seconds": bed_start,
+                "bed_source_out_seconds": bed_end,
+            }
+        )
+
+    plan = ContentCreativeEditPlanV2.model_validate(data)
+    assert plan.audio_policy == "continuous_bed"
+
+    data["segments"][1]["audio"]["bed_source_in_seconds"] = 1.0
+    data["segments"][1]["audio"]["bed_source_out_seconds"] = 3.0
+    with pytest.raises(ValidationError, match="contiguous"):
         ContentCreativeEditPlanV2.model_validate(data)
 
 
@@ -270,8 +504,8 @@ def test_scene_diversity_plan_records_distinct_scenes_and_explicit_repetition():
         "repeated_detected_scene_interval"
     )
     assert set(reloaded.model_dump(mode="json")) == set(_plan_data())
-    assert set(reloaded.model_dump(mode="json")["segments"][0]) == set(
-        _plan_data()["segments"][0]
+    assert set(reloaded.model_dump(mode="json")["segments"][0]) == (
+        set(_plan_data()["segments"][0]) | {"motion", "transition"}
     )
 
 

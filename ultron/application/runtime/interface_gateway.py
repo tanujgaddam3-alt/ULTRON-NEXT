@@ -315,6 +315,9 @@ class InterfaceGateway:
 
         self._clients: set[Any] = set()
         self._subscriptions: dict[Any, set[str]] = {}
+        self._quiescing = False
+        self._active_requests = 0
+        self._request_condition = asyncio.Condition()
         self._chat_session_locks: dict[str, asyncio.Lock] = {}
         self._loop: asyncio.AbstractEventLoop | None = None
         self._subscribed = False
@@ -381,6 +384,22 @@ class InterfaceGateway:
         revoke = getattr(self.approval_authorizer, "revoke", None)
         if callable(revoke):
             revoke(websocket)
+
+    def begin_quiesce(self) -> None:
+        self._quiescing = True
+
+    async def wait_for_inflight_requests(self, timeout: float) -> bool:
+        try:
+            async with self._request_condition:
+                await asyncio.wait_for(
+                    self._request_condition.wait_for(
+                        lambda: self._active_requests == 0
+                    ),
+                    timeout=timeout,
+                )
+        except TimeoutError:
+            return False
+        return True
 
     async def _send(self, websocket: Any, payload: dict[str, Any]) -> None:
         await websocket.send(json.dumps(payload, default=str))
@@ -811,6 +830,33 @@ class InterfaceGateway:
     # ------------------------------------------------------------------
 
     async def handle(
+        self,
+        websocket: Any,
+        message: dict[str, Any],
+    ) -> None:
+        async with self._request_condition:
+            if self._quiescing:
+                await self._send(
+                    websocket,
+                    {
+                        "action": "ERROR",
+                        "correlationId": message.get("correlationId"),
+                        "success": False,
+                        "status": "GATEWAY_QUIESCED",
+                        "error": "The gateway is quiescing and is not accepting new work.",
+                        "provenance": PROVENANCE,
+                    },
+                )
+                return
+            self._active_requests += 1
+        try:
+            await self._handle_request(websocket, message)
+        finally:
+            async with self._request_condition:
+                self._active_requests -= 1
+                self._request_condition.notify_all()
+
+    async def _handle_request(
         self,
         websocket: Any,
         message: dict[str, Any],
@@ -7252,6 +7298,9 @@ async def serve_interface(
     container,
     host: str = "127.0.0.1",
     port: int = 8080,
+    *,
+    shutdown_event: asyncio.Event | None = None,
+    drain_timeout: float = 10.0,
 ):
     """
     Run the production ULTRON interface WebSocket endpoint.
@@ -7388,12 +7437,26 @@ async def serve_interface(
             port,
             max_size=48 * 1024 * 1024,
             max_queue=1,
-        ):
+            close_timeout=2,
+        ) as server:
             print(
                 "ULTRON interface WebSocket listening on "
                 f"ws://{host}:{port}{ENDPOINT_PATH}"
             )
-            await asyncio.Future()
+            if shutdown_event is None:
+                await asyncio.Future()
+            else:
+                await shutdown_event.wait()
+                gateway.begin_quiesce()
+                drained = await gateway.wait_for_inflight_requests(drain_timeout)
+                if not drained:
+                    logger.warning(
+                        "Gateway drain exceeded %.1f seconds; closing the "
+                        "listener and rejecting remaining work.",
+                        drain_timeout,
+                    )
+                server.close()
+                await server.wait_closed()
     finally:
         gateway.stop()
         gateway.operation_store.close()
